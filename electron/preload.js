@@ -16,4 +16,5 @@ contextBridge.exposeInMainWorld('songwave', {
   getPlayUrl: (id) => ipcRenderer.invoke('songwave-play-url', id),
   getLyric: (id) => ipcRenderer.invoke('songwave-lyric', id),
   openLocalFiles: () => ipcRenderer.invoke('open-local-files'),
+  getLxStatus: () => ipcRenderer.invoke('songwave-lx-status'),
 });

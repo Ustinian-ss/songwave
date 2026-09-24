@@ -305,6 +305,57 @@
     audio.volume = Number(e.target.value) / 100;
   });
 
+  // —— 键盘快捷键（输入框聚焦时不响应） ——
+  function isTyping() {
+    const t = document.activeElement && document.activeElement.tagName;
+    return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT';
+  }
+  function seekBy(delta) {
+    if (!audio.duration || !Number.isFinite(audio.duration)) return;
+    audio.currentTime = Math.min(audio.duration, Math.max(0, audio.currentTime + delta));
+  }
+  function changeVolume(delta) {
+    const v = Math.min(100, Math.max(0, Math.round(Number($('volume').value)) + delta));
+    $('volume').value = v;
+    audio.volume = v / 100;
+    setStatus('音量 ' + v + '%', 1200);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (isTyping()) return;
+    const k = e.key;
+    if (k === ' ') { e.preventDefault(); if (audio.paused) audio.play().catch(() => {}); else audio.pause(); }
+    else if (k === 'ArrowRight') seekBy(5);
+    else if (k === 'ArrowLeft') seekBy(-5);
+    else if (k === 'ArrowUp') { e.preventDefault(); changeVolume(5); }
+    else if (k === 'ArrowDown') { e.preventDefault(); changeVolume(-5); }
+    else if (k === 'm' || k === 'M') { audio.muted = !audio.muted; setStatus(audio.muted ? '已静音（M 取消）' : '已恢复声音', 1200); }
+    else if (k === 'n' || k === 'N') { if (playlist.length && current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); } }
+    else if (k === 'p' || k === 'P') { if (playlist.length && current > 0) { current--; renderPlaylist(); playCurrent(); } }
+  });
+  // 播放条上滚动滚轮调音量
+  $('player').addEventListener('wheel', (e) => {
+    e.preventDefault();
+    changeVolume(e.deltaY < 0 ? 5 : -5);
+  }, { passive: false });
+
+  // —— lx 音源状态提示 ——
+  function updateLxStatus() {
+    const el = $('lx-status');
+    if (!el) return;
+    if (!window.songwave.getLxStatus) return;
+    window.songwave.getLxStatus().then((s) => {
+      el.classList.remove('warn');
+      if (s && s.loaded) {
+        el.textContent = '音源：网易云 + ' + s.name + '（' + s.sourceKeys.join(', ') + '）';
+      } else if (s && s.loading) {
+        el.textContent = '音源：网易云 · lx 加载中…';
+      } else {
+        el.textContent = '音源：网易云（lx 未加载' + (s && s.error ? '：' + s.error : '') + '）';
+        el.classList.add('warn');
+      }
+    }).catch(() => {});
+  }
+
   // —— 本地音乐 ——
   $('btn-local').onclick = async () => {
     const paths = await window.songwave.openLocalFiles();
@@ -411,6 +462,7 @@
     bindParams();
     loadState();
     renderPlaylist();
+    updateLxStatus();
     if (current >= 0 && playlist[current]) {
       // 恢复上次会话的播放列表（不自动播放，等用户点播放）
       nowTitle.textContent = playlist[current].name || playlist[current].label;

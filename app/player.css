@@ -164,6 +164,21 @@
 .list-tools { display: flex; gap: 6px; }
 .list-tools .btn { padding: 0 12px; height: 32px; font-size: 12px; }
 
+/* 侧栏底部：音源状态 */
+.lx-status {
+  flex: none;
+  margin-top: auto;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: #7f8ea8;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lx-status.warn { color: #c9a46a; }
+
 /* 歌词面板 */
 .lyric-list {
   flex: 1;

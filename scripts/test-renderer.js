@@ -69,10 +69,11 @@ const tabEls = [
 ];
 const doc = {
   readyState: 'complete',
+  _listeners: {},
   getElementById(id) { return ids[id] || (ids[id] = makeEl('div')); },
   createElement(tag) { return makeEl(tag); },
   querySelectorAll(sel) { return sel === '.tab' ? tabEls : []; },
-  addEventListener() {},
+  addEventListener(type, fn) { this._listeners[type] = fn; },
 };
 
 const audioEl = makeAudioEl();
@@ -105,6 +106,7 @@ const sandbox = {
       getPlayUrl: async (obj) => ({ ok: true, url: 'https://music.163.com/song/media/outer/url?id=' + (obj && obj.id !== undefined ? obj.id : obj) + '.mp3' }),
       getLyric: async () => ({ ok: true, data: { lrc: '[00:01.00]第一句\n[00:10.00]第二句\n', tlyric: '[00:10.00]Second line' } }),
       openLocalFiles: async () => [],
+      getLxStatus: async () => ({ ok: true, loaded: true, name: 'flower', sourceKeys: ['kw', 'mg'], searchSources: [] }),
     },
     addEventListener() {},
     innerWidth: 1280,
@@ -195,6 +197,28 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     // 8) Tab 切换
     tabEls[1].onclick();
     check('Tab 切换后 side-list 可见', ids['side-list'].classList.contains('hidden') === false);
+
+    // 9) 键盘快捷键
+    audioEl.pause();
+    doc._listeners['keydown']({ key: ' ', preventDefault() {} });
+    check('Space 播放', audioEl.paused === false);
+    doc._listeners['keydown']({ key: ' ', preventDefault() {} });
+    check('Space 暂停', audioEl.paused === true);
+    audioEl.currentTime = 50;
+    doc._listeners['keydown']({ key: 'ArrowRight', preventDefault() {} });
+    check('→ 快进 5 秒', audioEl.currentTime === 55);
+    doc._listeners['keydown']({ key: 'ArrowLeft', preventDefault() {} });
+    check('← 快退 5 秒', audioEl.currentTime === 50);
+    doc._listeners['keydown']({ key: 'ArrowUp', preventDefault() {} });
+    check('↑ 音量 +5', Number(ids['volume'].value) === 60 && Math.abs(audioEl.volume - 0.6) < 1e-9);
+
+    // 10) 播放条滚轮调音量
+    ids['player']._listeners['wheel']({ deltaY: -100, preventDefault() {} });
+    check('滚轮上调音量', Number(ids['volume'].value) === 65 && Math.abs(audioEl.volume - 0.65) < 1e-9);
+
+    // 11) lx 音源状态提示
+    await flush();
+    check('lx 状态提示已更新', /flower/.test(ids['lx-status'].textContent));
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
     process.exit(fail ? 1 : 0);

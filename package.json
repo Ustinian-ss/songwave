@@ -1,7 +1,7 @@
 {
   "name": "songwave",
   "productName": "声浪 SongWave",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "声浪 · 音画一体的音乐播放器：在线搜索播放 + 本地音乐 + Song-Life 可视化引擎 + lx 用户音源",
   "main": "electron/main.js",
   "author": "SongWave",

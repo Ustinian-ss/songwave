@@ -11,18 +11,29 @@ let win = null;
 const LX_SCRIPT = process.env.SONGWAVE_LX_SCRIPT || 'D:\\小程序\\lxmusic\\flower-v1.0.0.js';
 const LX_INIT_TIMEOUT = Number(process.env.SONGWAVE_LX_INIT_TIMEOUT) || 30000;
 let lxPromise = null;
+let lxState = { loading: false, loaded: false, name: '', sourceKeys: [], searchSources: [], error: '' };
 function getLx() {
   if (!lxPromise) {
+    lxState.loading = true;
     lxPromise = lxSource.createLxSource(LX_SCRIPT, {
       name: path.basename(LX_SCRIPT),
       initTimeoutMs: LX_INIT_TIMEOUT,
     })
       .then((src) => {
+        lxState = {
+          loading: false, loaded: true,
+          name: src.name, sourceKeys: src.sourceKeys, searchSources: src.searchSources,
+          error: '',
+        };
         console.log('[songwave] lx 音源已加载:', src.name, '| 音源:', src.sourceKeys.join(','));
         return src;
       })
       .catch((err) => {
-        console.log('[songwave] lx 音源不可用:', err && err.message || err);
+        lxState = {
+          loading: false, loaded: false, name: '', sourceKeys: [], searchSources: [],
+          error: err && err.message || String(err),
+        };
+        console.log('[songwave] lx 音源不可用:', lxState.error);
         return null;
       });
   }
@@ -115,6 +126,8 @@ function setupMaximizeEvents() {
 }
 
 // —— 音源 IPC ——
+ipcMain.handle('songwave-lx-status', () => lxState);
+
 ipcMain.handle('songwave-search', async (_e, keywords) => {
   if (!keywords || !String(keywords).trim()) return { ok: false, error: '关键词为空' };
   const kw = String(keywords).trim();
