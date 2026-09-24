@@ -1,0 +1,355 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #060810;
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* manipulation（允许平移/捏合，禁双击缩放）：
+     此前 html,body 上写 none，Chrome/Safari 沿祖先链取交集，
+     导致 #panel-body 的 overflow-y 滚动被禁——手机上面板卡死 */
+  touch-action: manipulation;
+}
+
+#stage {
+  position: fixed; inset: 0;
+  display: block;
+  cursor: crosshair;
+  /* 画布本体才需要禁用手势 */
+  touch-action: none;
+}
+
+#ui {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4vmin;
+  z-index: 10;
+}
+
+#title {
+  font-size: clamp(1.2rem, 4vw, 2rem);
+  letter-spacing: 0.3em;
+  color: rgba(255,255,255,0.7);
+  font-weight: 300;
+  text-shadow: 0 0 20px rgba(120,180,255,0.5);
+  animation: breathe 5s ease-in-out infinite;
+  text-align: center;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.95; }
+}
+
+#hint {
+  font-size: clamp(0.7rem, 2.2vw, 0.9rem);
+  color: rgba(255,255,255,0.45);
+  letter-spacing: 0.12em;
+  transition: opacity 1s;
+  text-align: center;
+}
+
+/* （#dock 已随 v0.3 UI 改版移除，样式同步删除） */
+
+.row {
+  display: flex;
+  gap: 1.5vmin;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* 主题按钮 */
+.theme {
+  padding: 1.2vmin 3vmin;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.65);
+  font-size: clamp(0.7rem, 1.8vw, 0.85rem);
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  transition: all 0.25s;
+}
+.theme:hover { background: rgba(255,255,255,0.14); }
+.theme.active {
+  background: rgba(120,180,255,0.25);
+  border-color: rgba(120,180,255,0.6);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(120,180,255,0.4);
+}
+
+/* 主按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 2vmin 3.5vmin;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.85);
+  font-size: clamp(0.75rem, 2vw, 0.95rem);
+  cursor: pointer;
+  transition: all 0.25s;
+  letter-spacing: 0.06em;
+}
+.btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.35); }
+.btn:active { transform: scale(0.96); }
+
+/* 主按钮（系统音频） */
+.btn-primary {
+  background: linear-gradient(135deg, rgba(120,180,255,0.35), rgba(160,120,255,0.35));
+  border-color: rgba(140,170,255,0.6);
+  color: #fff;
+  font-weight: 500;
+  box-shadow: 0 0 18px rgba(120,160,255,0.35);
+}
+.btn-primary:hover { background: linear-gradient(135deg, rgba(120,180,255,0.5), rgba(160,120,255,0.5)); }
+.btn-primary.active {
+  background: linear-gradient(135deg, rgba(80,200,140,0.4), rgba(80,160,220,0.4));
+  border-color: rgba(100,220,160,0.7);
+  box-shadow: 0 0 20px rgba(100,220,160,0.5);
+}
+
+/* 播放列表 */
+#playlist {
+  max-height: 22vmin;
+  overflow-y: auto;
+  flex-direction: column;
+  align-items: stretch;
+  width: min(80vw, 420px);
+}
+.track {
+  padding: 1vmin 2.5vmin;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  font-size: clamp(0.7rem, 1.8vw, 0.85rem);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.2s;
+}
+.track:hover { background: rgba(255,255,255,0.12); }
+.track.active {
+  background: rgba(120,180,255,0.22);
+  border-color: rgba(120,180,255,0.5);
+  color: #fff;
+}
+
+/* （旧 #params 面板已随 v0.3 抽屉式 #panel 移除，样式同步删除） */
+
+.param label {
+  display: flex;
+  justify-content: space-between;
+  color: rgba(255,255,255,0.75);
+  font-size: clamp(0.7rem, 1.8vw, 0.85rem);
+  margin-bottom: 1vmin;
+}
+.param input[type="range"] {
+  width: 100%;
+  accent-color: #78b4ff;
+  cursor: pointer;
+}
+
+/* 状态提示 */
+#status {
+  position: fixed;
+  bottom: 22vmin;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255,255,255,0.9);
+  background: rgba(0,0,0,0.5);
+  padding: 1.5vmin 4vmin;
+  border-radius: 999px;
+  font-size: clamp(0.7rem, 2vw, 0.9rem);
+  opacity: 0;
+  transition: opacity 0.4s;
+  pointer-events: none;
+  letter-spacing: 0.06em;
+  max-width: 90vw;
+  text-align: center;
+}
+#status.show { opacity: 1; }
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+  #title { letter-spacing: 0.18em; }
+  .btn { padding: 3vmin 4.5vmin; }
+}
+
+/* ===== 窗口控制按钮（Electron 无边框窗口） ===== */
+/* 顶部拖拽条：frameless 窗口可拖动 */
+#drag-bar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 40px;
+  -webkit-app-region: drag;
+  z-index: 20;
+}
+
+#win-btns {
+  position: fixed;
+  top: 0; right: 0;
+  display: flex;
+  z-index: 40;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+.wb {
+  width: 46px; height: 40px;
+  border: none; background: transparent;
+  color: rgba(255,255,255,0.55);
+  font-size: 14px; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  -webkit-app-region: no-drag;
+  font-family: inherit;
+}
+.wb:hover { background: rgba(255,255,255,0.14); color: #fff; }
+.wb-close:hover { background: #e81123; color: #fff; }
+
+/* 移动端隐藏窗口按钮 */
+@media (max-width: 768px) {
+  #win-btns, #drag-bar { display: none; }
+}
+
+
+
+/* ===== 控制面板（右侧抽屉） ===== */
+.panel-toggle {
+  position: fixed;
+  right: 2.5vmin;
+  bottom: 2.5vmin;
+  z-index: 30;
+  pointer-events: auto;
+  background: rgba(20,26,46,0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+
+#panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(80vw, 340px);
+  z-index: 35;
+  pointer-events: auto;
+  background: rgba(10,14,26,0.85);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-left: 1px solid rgba(255,255,255,0.14);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(105%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#panel.open { transform: translateX(0); }
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2.5vmin 3vmin;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.9);
+  font-size: clamp(0.9rem, 2.4vw, 1rem);
+  letter-spacing: 0.12em;
+  font-weight: 500;
+}
+.panel-close {
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 1vmin;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+.panel-close:hover { background: rgba(255,255,255,0.14); color: #fff; }
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2vmin 3vmin 3vmin;
+  display: flex;
+  flex-direction: column;
+  gap: 3vmin;
+}
+.panel-body::-webkit-scrollbar { width: 5px; }
+.panel-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+.panel-group { display: flex; flex-direction: column; gap: 1.5vmin; }
+.panel-title {
+  font-size: clamp(0.72rem, 1.9vw, 0.82rem);
+  color: rgba(140,180,255,0.75);
+  letter-spacing: 0.2em;
+  padding-bottom: 1vmin;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+
+#themes { gap: 1.2vmin; }
+#controls { gap: 1.2vmin; }
+#playlist {
+  flex-direction: column;
+  align-items: stretch;
+  max-height: 24vmin;
+  overflow-y: auto;
+  gap: 0.8vmin;
+}
+
+#hint-input {
+  width: 100%;
+  padding: 1.5vmin 2vmin;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: rgba(255,255,255,0.9);
+  font-size: clamp(0.72rem, 1.8vw, 0.82rem);
+  outline: none;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+#hint-input:focus { border-color: rgba(120,180,255,0.6); }
+#hint-input::placeholder { color: rgba(255,255,255,0.35); }
+
+/* 面板内按钮更紧凑 */
+#panel .btn { padding: 1.5vmin 2.5vmin; font-size: clamp(0.68rem, 1.7vw, 0.8rem); }
+#panel .param input[type="range"] { accent-color: #78b4ff; }
+
+@media (max-width: 768px) {
+  #panel { width: 88vw; }
+}
+
+
+/* 音柱材质下拉选择 */
+.param select {
+  width: 100%;
+  padding: 1vmin 2vmin;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: rgba(255,255,255,0.9);
+  font-size: clamp(0.72rem, 1.8vw, 0.82rem);
+  outline: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+.param select:focus { border-color: rgba(120,180,255,0.6); }
+.param select option { background: #141a2e; color: rgba(255,255,255,0.9); }

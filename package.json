@@ -1,0 +1,59 @@
+{
+  "name": "songwave",
+  "productName": "声浪 SongWave",
+  "version": "0.1.0",
+  "description": "声浪 · 音画一体的音乐播放器：在线搜索播放 + 本地音乐 + Song-Life 可视化引擎",
+  "main": "electron/main.js",
+  "author": "SongWave",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "dev:local": "..\\song-life\\node_modules\\.bin\\electron .",
+    "build:win": "electron-builder --win",
+    "build:portable": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis",
+    "test:sources": "node scripts/test-sources.js"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.songwave.app",
+    "productName": "声浪 SongWave",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "app/**/*",
+      "electron/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "app/icon.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "SongWave-Setup-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "SongWave-Portable-${version}.exe"
+    }
+  }
+}

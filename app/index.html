@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#060810">
+  <title>声浪 SongWave</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="player.css">
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <!-- 顶部：窗口控制 + 标题 -->
+  <div id="ui">
+    <div id="drag-bar"></div>
+    <div id="win-btns">
+      <button class="wb" id="wb-min" title="最小化">—</button>
+      <button class="wb" id="wb-max" title="最大化">□</button>
+      <button class="wb wb-close" id="wb-close" title="关闭">✕</button>
+    </div>
+    <div id="title">声浪 · SongWave</div>
+    <div id="hint">左侧搜索在线音乐，或「本地音乐」导入文件</div>
+  </div>
+
+  <!-- 左侧：搜索 / 播放列表 -->
+  <aside id="sidebar">
+    <div class="side-head">
+      <button class="tab active" data-tab="search">搜索</button>
+      <button class="tab" data-tab="list">播放列表</button>
+    </div>
+    <div class="side-body" id="side-search">
+      <div class="search-row">
+        <input id="search-input" placeholder="搜索歌曲 / 歌手 / 专辑" spellcheck="false">
+        <button class="btn btn-primary" id="search-btn">搜索</button>
+      </div>
+      <div id="results" class="result-list"></div>
+    </div>
+    <div class="side-body hidden" id="side-list">
+      <div class="list-tools">
+        <button class="btn" id="btn-local">📁 本地音乐</button>
+        <button class="btn" id="btn-clear-list" title="清空播放列表">🗑</button>
+      </div>
+      <div id="playlist" class="vlist"></div>
+    </div>
+  </aside>
+
+  <!-- 底部播放条 -->
+  <div id="player">
+    <div id="now">
+      <div id="cover-wrap"><img id="cover" alt=""></div>
+      <div class="now-meta">
+        <div id="now-title">未在播放</div>
+        <div id="now-artist">—</div>
+      </div>
+    </div>
+    <div class="player-mid">
+      <div class="player-btns">
+        <button class="btn" id="btn-prev" title="上一首">⏮</button>
+        <button class="btn btn-primary" id="btn-play" title="播放 / 暂停">▶</button>
+        <button class="btn" id="btn-next" title="下一首">⏭</button>
+      </div>
+      <div class="progress-row">
+        <span id="time-cur">0:00</span>
+        <input type="range" id="progress" min="0" max="1000" value="0" title="进度">
+        <span id="time-total">0:00</span>
+        <input type="range" id="volume" min="0" max="100" value="80" title="音量">
+        <button class="btn panel-toggle" id="btn-panel" title="可视化面板">⚙ 面板</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧：可视化参数面板（复用 Song-Life） -->
+  <div id="panel">
+    <div class="panel-head">
+      <span>可视化面板</span>
+      <button class="panel-close" id="panel-close">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-group">
+        <div class="panel-title">色彩主题</div>
+        <div id="themes" class="row"></div>
+      </div>
+      <div class="panel-group">
+        <div class="panel-title">音域地形</div>
+        <div class="param">
+          <label>律动强度 <span id="v-height">100%</span></label>
+          <input type="range" id="p-height" min="0.2" max="2" step="0.05" value="1.0">
+        </div>
+        <div class="param">
+          <label>响应速度 <span id="v-response">0.50</span></label>
+          <input type="range" id="p-response" min="0.1" max="0.9" step="0.01" value="0.5">
+        </div>
+        <div class="param">
+          <label>闪烁强度 <span id="v-flash">100%</span></label>
+          <input type="range" id="p-flash" min="0" max="2" step="0.05" value="1.0">
+        </div>
+        <div class="param">
+          <label>亮度 <span id="v-bright">100%</span></label>
+          <input type="range" id="p-bright" min="0.3" max="1.6" step="0.05" value="1.0">
+        </div>
+        <div class="param">
+          <label>俯视视角 <span id="v-tilt">0.42</span></label>
+          <input type="range" id="p-tilt" min="0.2" max="0.7" step="0.01" value="0.42">
+        </div>
+        <div class="param">
+          <label>色相偏移 <span id="v-hueshift">0</span></label>
+          <input type="range" id="p-hueshift" min="-180" max="180" step="1" value="0">
+        </div>
+        <div class="param">
+          <label>鼠标波动 <span id="v-mousewave">100%</span></label>
+          <input type="range" id="p-mousewave" min="0" max="2" step="0.05" value="1.0">
+        </div>
+        <div class="param">
+          <label>音柱材质</label>
+          <select id="p-barstyle">
+            <option value="glass" selected>玻璃（半透明）</option>
+            <option value="solid">实心</option>
+            <option value="glow">发光</option>
+          </select>
+        </div>
+      </div>
+      <div class="panel-group">
+        <div class="panel-title">提示文字</div>
+        <input type="text" id="hint-input" placeholder="输入自定义提示文字">
+      </div>
+    </div>
+  </div>
+
+  <audio id="audio"></audio>
+  <div id="status"></div>
+
+  <script src="engine.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

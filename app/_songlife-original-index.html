@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#060810">
+  <title>声命 Song-Life</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <div id="ui">
+    <div id="drag-bar"></div>
+    <div id="win-btns">
+      <button class="wb" id="wb-min" title="最小化">—</button>
+      <button class="wb" id="wb-max" title="最大化">□</button>
+      <button class="wb wb-close" id="wb-close" title="关闭">✕</button>
+    </div>
+
+    <div id="title">声命 · Song-Life</div>
+    <div id="hint">点击画面有光环 · 点「系统音频」检测正在播放的音乐</div>
+
+    <!-- 控制面板开关 -->
+    <button class="btn panel-toggle" id="btn-panel" title="控制面板">⚙ 面板</button>
+
+    <!-- 右侧抽屉式控制面板 -->
+    <div id="panel">
+      <div class="panel-head">
+        <span>控制面板</span>
+        <button class="panel-close" id="panel-close">✕</button>
+      </div>
+
+      <div class="panel-body">
+        <!-- 色彩主题 -->
+        <div class="panel-group">
+          <div class="panel-title">色彩主题</div>
+          <div id="themes" class="row"></div>
+        </div>
+
+        <!-- 音频源 -->
+        <div class="panel-group">
+          <div class="panel-title">音频源</div>
+          <div id="controls" class="row">
+            <label class="btn" id="btn-file">
+              🎵 选择音乐
+              <input type="file" id="file" accept="audio/*" multiple hidden>
+            </label>
+            <button class="btn btn-primary" id="btn-system">🔊 系统音频</button>
+            <button class="btn" id="btn-mic">🎤 麦克风</button>
+            <button class="btn" id="btn-play">▶ 播放</button>
+          </div>
+          <div id="playlist" class="row"></div>
+          <button class="btn" id="btn-clear" title="清空播放列表">🗑 清空列表</button>
+        </div>
+
+        <!-- 音域地形参数 -->
+        <div class="panel-group">
+          <div class="panel-title">音域地形</div>
+          <div class="param">
+            <label>律动强度 <span id="v-height">100%</span></label>
+            <input type="range" id="p-height" min="0.2" max="2" step="0.05" value="1.0">
+          </div>
+          <div class="param">
+            <label>响应速度 <span id="v-response">0.50</span></label>
+            <input type="range" id="p-response" min="0.1" max="0.9" step="0.01" value="0.5">
+          </div>
+          <div class="param">
+            <label>闪烁强度 <span id="v-flash">100%</span></label>
+            <input type="range" id="p-flash" min="0" max="2" step="0.05" value="1.0">
+          </div>
+          <div class="param">
+            <label>亮度 <span id="v-bright">100%</span></label>
+            <input type="range" id="p-bright" min="0.3" max="1.6" step="0.05" value="1.0">
+          </div>
+          <div class="param">
+            <label>俯视视角 <span id="v-tilt">0.42</span></label>
+            <input type="range" id="p-tilt" min="0.2" max="0.7" step="0.01" value="0.42">
+          </div>
+          <div class="param">
+            <label>色相偏移 <span id="v-hueshift">0</span></label>
+            <input type="range" id="p-hueshift" min="-180" max="180" step="1" value="0">
+          </div>
+          <div class="param">
+            <label>鼠标波动 <span id="v-mousewave">100%</span></label>
+            <input type="range" id="p-mousewave" min="0" max="2" step="0.05" value="1.0">
+          </div>
+          <div class="param">
+            <label>音柱材质</label>
+            <select id="p-barstyle">
+              <option value="glass" selected>玻璃（半透明）</option>
+              <option value="solid">实心</option>
+              <option value="glow">发光</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 提示文字 -->
+        <div class="panel-group">
+          <div class="panel-title">提示文字</div>
+          <input type="text" id="hint-input" placeholder="输入自定义提示文字" value="点击画面有光环 · 点「系统音频」检测正在播放的音乐">
+        </div>
+      </div>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <audio id="audio" crossorigin="anonymous"></audio>
+
+  <script src="engine.js"></script>
+  <script>
+  (() => {
+    const fileInput = document.getElementById('file');
+    const btnSystem = document.getElementById('btn-system');
+    const btnMic = document.getElementById('btn-mic');
+    const btnPlay = document.getElementById('btn-play');
+    const btnPanel = document.getElementById('btn-panel');
+    const panelClose = document.getElementById('panel-close');
+    const audio = document.getElementById('audio');
+    const status = document.getElementById('status');
+    const hint = document.getElementById('hint');
+    const hintInput = document.getElementById('hint-input');
+    const themesEl = document.getElementById('themes');
+    const playlistEl = document.getElementById('playlist');
+    const panelEl = document.getElementById('panel');
+
+    let playlist = [];
+    let current = -1;
+
+    // ---- 设置持久化（主题/参数/提示文字刷新不丢） ----
+    const SKEY = 'songlife.settings.v1';
+    function saveSettings() {
+      try {
+        const o = {
+          theme: SongLife.getParam('theme'),
+          height: SongLife.getParam('height'),
+          response: SongLife.getParam('response'),
+          flash: SongLife.getParam('flash'),
+          brightness: SongLife.getParam('brightness'),
+          tilt: SongLife.getParam('tilt'),
+          hueShift: SongLife.getParam('hueShift'),
+          mouseWave: SongLife.getParam('mouseWave'),
+          barStyle: SongLife.getParam('barStyle'),
+          hintText: hint.textContent,
+        };
+        localStorage.setItem(SKEY, JSON.stringify(o));
+      } catch (e) {} // 隐私模式下静默降级
+    }
+    function restoreSettings() {
+      let o = null;
+      try { o = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) {}
+      if (!o) return;
+      const sliderMap = {
+        height: 'p-height', response: 'p-response', flash: 'p-flash',
+        brightness: 'p-bright', tilt: 'p-tilt', hueShift: 'p-hueshift', mouseWave: 'p-mousewave',
+      };
+      Object.keys(sliderMap).forEach(k => {
+        if (o[k] != null) {
+          const el = document.getElementById(sliderMap[k]);
+          if (el) { el.value = o[k]; el.dispatchEvent(new Event('input')); }
+        }
+      });
+      if (o.barStyle) {
+        const sel = document.getElementById('p-barstyle');
+        if (sel && sel.querySelector('option[value="' + o.barStyle + '"]')) {
+          sel.value = o.barStyle; sel.dispatchEvent(new Event('change'));
+        }
+      }
+      if (o.theme) {
+        const btn = themesEl.querySelector('.theme[data-key="' + o.theme + '"]');
+        if (btn) btn.click();
+      }
+      if (o.hintText) { hintInput.value = o.hintText; hintInput.dispatchEvent(new Event('input')); }
+    }
+
+    function setStatus(msg) {
+      status.textContent = msg;
+      status.classList.add('show');
+      clearTimeout(status._t);
+      status._t = setTimeout(() => status.classList.remove('show'), 4000);
+    }
+
+    // ---- 控制面板开关 ----
+    function togglePanel(force) {
+      const open = typeof force === 'boolean' ? force : !panelEl.classList.contains('open');
+      panelEl.classList.toggle('open', open);
+    }
+    btnPanel.addEventListener('click', () => togglePanel());
+    panelClose.addEventListener('click', () => togglePanel(false));
+
+    // ---- 窗口控制按钮（Electron 无边框窗口）----
+    if (window.winCtl) {
+      const wbMin = document.getElementById('wb-min');
+      const wbMax = document.getElementById('wb-max');
+      const wbClose = document.getElementById('wb-close');
+      if (wbMin) wbMin.addEventListener('click', () => window.winCtl.minimize());
+      if (wbMax) {
+        wbMax.addEventListener('click', () => window.winCtl.toggleMaximize());
+        window.winCtl.onMaximizeChange((isMax) => {
+          wbMax.textContent = isMax ? '❐' : '□';
+          wbMax.title = isMax ? '还原' : '最大化';
+        });
+        window.winCtl.isMaximized().then(isMax => {
+          wbMax.textContent = isMax ? '❐' : '□';
+        });
+      }
+      if (wbClose) wbClose.addEventListener('click', () => window.winCtl.close());
+    } else {
+      const wb = document.getElementById('win-btns');
+      const db = document.getElementById('drag-bar');
+      if (wb) wb.style.display = 'none';
+      if (db) db.style.display = 'none';
+    }
+
+    // ---- 提示文字自定义 ----
+    function applyHint() {
+      const txt = hintInput.value.trim();
+      hint.textContent = txt || '点击画面有光环 · 点「系统音频」检测正在播放的音乐';
+      SongLife.setParam('hint', hint.textContent);
+    }
+    hintInput.addEventListener('input', () => { applyHint(); saveSettings(); });
+
+    // ---- 主题 ----
+    const themes = SongLife.getThemes();
+    themes.forEach(t => {
+      const b = document.createElement('button');
+      b.className = 'theme';
+      b.textContent = t.name;
+      b.dataset.key = t.key;
+      b.addEventListener('click', () => {
+        SongLife.setTheme(t.key);
+        themesEl.querySelectorAll('.theme').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        saveSettings();
+      });
+      themesEl.appendChild(b);
+    });
+    if (themesEl.querySelector('.theme')) themesEl.querySelector('.theme').classList.add('active');
+
+    // ---- 音频选择（支持多文件 → 播放列表）----
+    fileInput.addEventListener('change', () => {
+      const files = Array.from(fileInput.files);
+      if (!files.length) return;
+      files.forEach(f => {
+        playlist.push({ name: f.name, url: URL.createObjectURL(f) });
+      });
+      renderPlaylist();
+      if (current < 0) playIndex(0);
+      setStatus('已加入 ' + files.length + ' 首');
+    });
+
+    function renderPlaylist() {
+      playlistEl.innerHTML = '';
+      playlist.forEach((item, i) => {
+        const b = document.createElement('button');
+        b.className = 'track' + (i === current ? ' active' : '');
+        b.textContent = (i + 1) + '. ' + item.name;
+        b.addEventListener('click', () => playIndex(i));
+        playlistEl.appendChild(b);
+      });
+    }
+
+    function playIndex(i) {
+      if (i < 0 || i >= playlist.length) return;
+      current = i;
+      audio.src = playlist[i].url;
+      audio.play().then(() => {
+        SongLife.initFile(audio);
+        setStatus('正在播放：' + playlist[i].name);
+        hint.style.opacity = 0;
+        btnPlay.textContent = '⏸ 暂停';
+        renderPlaylist();
+      }).catch(e => setStatus('播放失败：' + e.message));
+    }
+
+    audio.addEventListener('ended', () => {
+      if (current < playlist.length - 1) playIndex(current + 1);
+      else { btnPlay.textContent = '▶ 播放'; setStatus('播放列表结束'); }
+    });
+
+    // ---- 清空播放列表（并释放 blob URL，避免大文件常驻内存） ----
+    const btnClear = document.getElementById('btn-clear');
+    btnClear.addEventListener('click', () => {
+      if (!playlist.length) { setStatus('播放列表为空'); return; }
+      audio.pause(); audio.removeAttribute('src'); try { audio.load(); } catch (e) {}
+      playlist.forEach(it => { try { URL.revokeObjectURL(it.url); } catch (e) {} });
+      playlist = []; current = -1;
+      renderPlaylist(); btnPlay.textContent = '▶ 播放';
+      setStatus('已清空播放列表');
+    });
+    window.addEventListener('beforeunload', () => {
+      playlist.forEach(it => { try { URL.revokeObjectURL(it.url); } catch (e) {} });
+    });
+
+    // ---- 系统音频 ----
+    btnSystem.addEventListener('click', async () => {
+      btnSystem.disabled = true;
+      setStatus('正在请求系统音频捕获…');
+      try {
+        await SongLife.initSystemAudio();
+        setStatus('🔊 已连接系统音频 — 现在播放任何音乐都会驱动画面');
+        hint.style.opacity = 0;
+        btnSystem.classList.add('active');
+        btnSystem.textContent = '🔊 系统音频 ✓';
+      } catch (e) {
+        setStatus('系统音频失败：' + (e.message || e) + '（可试用麦克风）');
+        btnSystem.disabled = false;
+      }
+    });
+
+    // ---- 麦克风 ----
+    btnMic.addEventListener('click', async () => {
+      try {
+        await SongLife.initMic();
+        setStatus('🎤 麦克风已启用 — 跟着哼唱试试');
+        hint.style.opacity = 0;
+      } catch (e) {
+        setStatus('麦克风失败：' + (e.message || e));
+      }
+    });
+
+    SongLife._onSourceEnd = function (kind) {
+      if (kind === 'system') {
+        btnSystem.textContent = '🔊 系统音频';
+        btnSystem.classList.remove('active');
+        btnSystem.disabled = false;
+        setStatus('系统音频已断开');
+      } else if (kind === 'mic') {
+        setStatus('麦克风已断开');
+      }
+      hint.style.opacity = 0.8;
+    };
+
+    // ---- 播放/暂停 ----
+    btnPlay.addEventListener('click', () => {
+      if (!audio.src) { setStatus('请先选择音乐'); return; }
+      if (audio.paused) { audio.play(); btnPlay.textContent = '⏸ 暂停'; }
+      else { audio.pause(); btnPlay.textContent = '▶ 播放'; }
+    });
+
+    // ---- 参数绑定 ----
+    function bindSlider(id, valueId, key, fmt) {
+      const el = document.getElementById(id);
+      const v = document.getElementById(valueId);
+      el.addEventListener('input', () => {
+        const val = parseFloat(el.value);
+        SongLife.setParam(key, val);
+        v.textContent = fmt ? fmt(val) : val;
+        saveSettings();
+      });
+    }
+    bindSlider('p-height', 'v-height', 'height', v => Math.round(v * 100) + '%');
+    bindSlider('p-response', 'v-response', 'response', v => v.toFixed(2));
+    bindSlider('p-flash', 'v-flash', 'flash', v => Math.round(v * 100) + '%');
+    bindSlider('p-bright', 'v-bright', 'brightness', v => Math.round(v * 100) + '%');
+    bindSlider('p-tilt', 'v-tilt', 'tilt', v => v.toFixed(2));
+    bindSlider('p-hueshift', 'v-hueshift', 'hueShift', v => (v > 0 ? '+' : '') + v);
+    bindSlider('p-mousewave', 'v-mousewave', 'mouseWave', v => Math.round(v * 100) + '%');
+    document.getElementById('p-barstyle').addEventListener('change', e => {
+      SongLife.setParam('barStyle', e.target.value);
+      saveSettings();
+    });
+
+    // 恢复上次的主题/参数/提示文字
+    restoreSettings();
+
+    // 自动淡出提示
+    setTimeout(() => { if (!audio.src) hint.style.opacity = 0.4; }, 8000);
+  })();
+  </script>
+</body>
+</html>
