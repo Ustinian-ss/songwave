@@ -3,8 +3,31 @@ const { app, BrowserWindow, ipcMain, dialog, session, desktopCapturer } = requir
 const path = require('path');
 
 const netease = require('../src/sources/netease');
+const lxSource = require('../src/sources/lx-source');
 
 let win = null;
+
+// —— LX 用户音源（懒加载，可插拔；默认 flower.js，可用 SONGWAVE_LX_SCRIPT 指定） ——
+const LX_SCRIPT = process.env.SONGWAVE_LX_SCRIPT || 'D:\\小程序\\lxmusic\\flower-v1.0.0.js';
+const LX_INIT_TIMEOUT = Number(process.env.SONGWAVE_LX_INIT_TIMEOUT) || 30000;
+let lxPromise = null;
+function getLx() {
+  if (!lxPromise) {
+    lxPromise = lxSource.createLxSource(LX_SCRIPT, {
+      name: path.basename(LX_SCRIPT),
+      initTimeoutMs: LX_INIT_TIMEOUT,
+    })
+      .then((src) => {
+        console.log('[songwave] lx 音源已加载:', src.name, '| 音源:', src.sourceKeys.join(','));
+        return src;
+      })
+      .catch((err) => {
+        console.log('[songwave] lx 音源不可用:', err && err.message || err);
+        return null;
+      });
+  }
+  return lxPromise;
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -94,26 +117,44 @@ function setupMaximizeEvents() {
 // —— 音源 IPC ——
 ipcMain.handle('songwave-search', async (_e, keywords) => {
   if (!keywords || !String(keywords).trim()) return { ok: false, error: '关键词为空' };
+  const kw = String(keywords).trim();
   try {
-    const list = await netease.search(String(keywords).trim());
-    return { ok: true, data: list };
+    const [neteaseList, lxList] = await Promise.all([
+      netease.search(kw),
+      getLx().then((src) => (src ? src.search(kw, 15) : [])),
+    ]);
+    return { ok: true, data: neteaseList.concat(lxList) };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
   }
 });
 
-ipcMain.handle('songwave-play-url', async (_e, id) => {
+ipcMain.handle('songwave-play-url', async (_e, payload) => {
   try {
-    const url = await netease.getPlayUrl(Number(id));
+    if (payload && payload.source === 'lx') {
+      const src = await getLx();
+      if (!src) return { ok: false, error: 'lx 音源未加载' };
+      const url = await src.getPlayUrl(payload.lxSource, payload, payload.quality);
+      return { ok: true, url };
+    }
+    const nid = Number(payload && payload.id !== undefined ? payload.id : payload);
+    const url = await netease.getPlayUrl(nid);
     return { ok: true, url };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
   }
 });
 
-ipcMain.handle('songwave-lyric', async (_e, id) => {
+ipcMain.handle('songwave-lyric', async (_e, payload) => {
   try {
-    const lyric = await netease.getLyric(Number(id));
+    if (payload && payload.source === 'lx') {
+      const src = await getLx();
+      if (!src) return { ok: false, error: 'lx 音源未加载' };
+      const lyric = await src.getLyric(payload.lxSource, payload.id);
+      return { ok: true, data: lyric };
+    }
+    const nid = Number(payload && payload.id !== undefined ? payload.id : payload);
+    const lyric = await netease.getLyric(nid);
     return { ok: true, data: lyric };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };

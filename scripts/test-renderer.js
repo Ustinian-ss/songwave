@@ -102,7 +102,7 @@ const sandbox = {
         if (!kw) return { ok: false, error: '空' };
         return { ok: true, data: [{ id: 1, name: '晴天', artist: '周杰伦', album: '叶惠美', cover: 'http://c/p.jpg', durationMs: 269000, source: 'netease' }] };
       },
-      getPlayUrl: async (id) => ({ ok: true, url: 'https://music.163.com/song/media/outer/url?id=' + id + '.mp3' }),
+      getPlayUrl: async (obj) => ({ ok: true, url: 'https://music.163.com/song/media/outer/url?id=' + (obj && obj.id !== undefined ? obj.id : obj) + '.mp3' }),
       getLyric: async () => ({ ok: true, data: { lrc: '[00:01.00]第一句\n[00:10.00]第二句\n', tlyric: '[00:10.00]Second line' } }),
       openLocalFiles: async () => [],
     },

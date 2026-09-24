@@ -75,9 +75,13 @@
     list.forEach((item) => {
       const row = document.createElement('div');
       row.className = 'track';
+      const badge = item.source === 'lx'
+        ? '<span class="t-src">' + esc(item.lxSource || 'lx') + '</span>'
+        : '<span class="t-src">网易</span>';
       row.innerHTML =
         '<span class="t-name">' + esc(item.name) + '</span>' +
         '<span class="t-artist">' + esc(item.artist) + '</span>' +
+        badge +
         '<button class="t-remove" title="加入播放列表">＋</button>';
       row.querySelector('.t-remove').onclick = (e) => { e.stopPropagation(); addAndPlay(item); };
       row.onclick = () => addAndPlay(item);
@@ -190,9 +194,13 @@
       if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
     }
   }
-  async function loadLyric(id) {
+  async function loadLyric(item) {
     try {
-      const r = await window.songwave.getLyric(id);
+      const r = await window.songwave.getLyric({
+        source: item.source,
+        id: item.id,
+        lxSource: item.lxSource,
+      });
       if (!r.ok) { renderLyric('', ''); return; }
       renderLyric(r.data.lrc || '', r.data.tlyric || '');
     } catch (e) {
@@ -222,7 +230,7 @@
     nowArtist.textContent = [item.artist, item.album].filter(Boolean).join(' · ') || '—';
     if (item.cover) coverEl.src = item.cover;
     if (item.type !== 'local' && window.songwave.getLyric) {
-      loadLyric(item.id);
+      loadLyric(item);
     } else {
       lyricLines = [];
       lyricEl.innerHTML = '<div class="lyric-empty">本地文件暂无歌词</div>';
@@ -234,7 +242,12 @@
     if (item.type === 'local') {
       src = toFileUrl(item.url);
     } else {
-      const r = await window.songwave.getPlayUrl(item.id);
+      const r = await window.songwave.getPlayUrl({
+        source: item.source,
+        id: item.id,
+        lxSource: item.lxSource,
+        quality: item.quality,
+      });
       if (!r.ok) { setStatus('获取播放地址失败：' + r.error); return; }
       src = r.url;
     }

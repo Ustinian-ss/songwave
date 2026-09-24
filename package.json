@@ -1,8 +1,8 @@
 {
   "name": "songwave",
   "productName": "声浪 SongWave",
-  "version": "0.1.0",
-  "description": "声浪 · 音画一体的音乐播放器：在线搜索播放 + 本地音乐 + Song-Life 可视化引擎",
+  "version": "0.3.0",
+  "description": "声浪 · 音画一体的音乐播放器：在线搜索播放 + 本地音乐 + Song-Life 可视化引擎 + lx 用户音源",
   "main": "electron/main.js",
   "author": "SongWave",
   "license": "MIT",
@@ -15,7 +15,8 @@
     "build:installer": "electron-builder --win nsis",
     "test": "node scripts/test-renderer.js",
     "test:renderer": "node scripts/test-renderer.js",
-    "test:sources": "node scripts/test-sources.js"
+    "test:sources": "node scripts/test-sources.js",
+    "test:lx": "node scripts/test-lx-runtime.js"
   },
   "devDependencies": {
     "electron": "^32.0.0",

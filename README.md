@@ -31,7 +31,8 @@ npm start            # 启动应用
 - [x] 歌词显示（原词 + 翻译，随播放进度高亮）
 - [x] Song-Life 可视化引擎（WebGL 优先 + Canvas 回退）
 - [x] 13 套主题 + 参数面板（律动/响应/闪烁/亮度/视角/色相/鼠标波动/音柱材质）
-- [ ] 多音源（可插拔 `src/sources/*.js`，后续接更多源）
+- [x] lx 用户音源脚本接入（flower.js / sixyin.js 可离线加载；flower 的 kw/tx/wy/kg/mg 取链已验证）
+- [ ] 全功能 lx 音源（六音搜索源接入，需联网验证）
 - [ ] 下载功能
 - [ ] 桌面歌词 + 壁纸模式
 
@@ -50,9 +51,13 @@ songwave/
 │   ├── main.js          # 主进程：窗口 + IPC（搜索/直链/本地文件）
 │   └── preload.js       # 安全桥
 ├── src/sources/         # 音源层（Node，可插拔）
-│   └── netease.js       # 网易云：search() / getPlayUrl()
+│   ├── netease.js       # 网易云：search() / getPlayUrl() / getLyric()
+│   ├── lx-runtime.js    # LX 用户音源脚本 mini-runtime（vm 沙箱 + lx API 契约）
+│   └── lx-source.js     # lx 音源适配层：search() / getPlayUrl() / getLyric()
 ├── scripts/
-│   └── test-sources.js  # 音源冒烟测试（npm run test:sources）
+│   ├── test-renderer.js # 渲染层离线端到端测试（npm test）
+│   ├── test-sources.js  # 网易音源冒烟测试（需联网）
+│   └── test-lx-runtime.js # lx 音源脚本离线测试（无需网络）
 └── docs/
 ```
 
@@ -66,21 +71,41 @@ preload (contextBridge)
    ▼
 主进程 (electron/main.js)
    ▼
-音源层 (src/sources/netease.js) ──HTTP──▶ music.163.com
+音源层
+ ├─ src/sources/netease.js ──HTTP──▶ music.163.com
+ └─ src/sources/lx-runtime.js + lx-source.js
+      └─ vm 沙箱加载 lx 用户音源脚本（flower.js / sixyin.js，来自 LX Music 生态）
+           └─ 脚本自身通过 lx.request 请求其聚合服务器
    │
 渲染层 audio <audio> ──▶ engine.initFile(audio) ──▶ AnalyserNode ──▶ 可视化引擎
 ```
+
+> 说明：lx 音源脚本在**独立的 Node vm 沙箱**中运行，与 LX Music 本体零耦合；
+> 声浪自带 lx API 契约（`EVENT_NAMES`/`request`/`on`/`send`/`utils`），脚本不需要任何修改。
 
 ## 测试
 
 ```bash
 npm test               # 渲染层离线端到端测试（最小 DOM 桩，无需 Electron/网络）
-npm run test:sources   # 音源层冒烟测试（需联网，验证网易云接口）
+npm run test:sources   # 网易音源冒烟测试（需联网，验证网易云接口）
+npm run test:lx        # lx 用户音源脚本离线测试（无需网络，默认 flower.js）
 ```
 
 ## 新增音源
 
+### 常规音源（如 QQ/酷狗）
 在 `src/sources/` 下新建 `xxx.js`，导出 `search(keywords)` 与 `getPlayUrl(id)`，再到 `electron/main.js` 里注册 IPC 即可。
+
+### lx 用户音源脚本（LX Music 生态，零改造）
+主进程默认加载 `D:\小程序\lxmusic\flower-v1.0.0.js`（可用环境变量 `SONGWAVE_LX_SCRIPT` 换成 sixyin 等其他脚本）。这些脚本在 `src/sources/lx-runtime.js` 的 vm 沙箱中按 LX v2 API 契约运行：脚本照常 `send(EVENT_NAMES.inited, ...)` 声明音源能力、`on(EVENT_NAMES.request, handler)` 处理请求，声浪自动接入搜索/取链/歌词。
+
+```bash
+SONGWAVE_LX_SCRIPT="D:\小程序\lxmusic\sixyin-music-source-v1.1.0.js" npm start
+```
+
+> 注意：
+> - flower.js / sixyin.js 均为**取链型**脚本（musicUrl，不自带搜索），需要搜索源（如内置网易云）提供待取链条目；
+> - sixyin 有较长启动预热且必须联网校验版本，离线环境会加载失败（属脚本自身行为）；可用 `SONGWAVE_LX_INIT_TIMEOUT`（毫秒）调整初始化等待上限，默认 30000。
 
 ## 打包
 
@@ -98,8 +123,9 @@ npm run build:installer    # 仅安装版
 
 ## Roadmap
 
-- [ ] 多音源（QQ/酷狗/咪咕/自定义 lx 音源脚本）
-- [ ] 歌词 + 翻译
+- [x] 歌词 + 翻译
+- [x] lx 用户音源脚本接入（mini-runtime）
+- [ ] 六音搜索源（sixyin）联网验证 + 多音源搜索聚合 UI
 - [ ] 下载（含歌词/封面）
 - [ ] 桌面歌词 / 壁纸模式（Wallpaper Engine Web 壁纸）
 - [ ] 音效（EQ / 混响 / 变调，参考 LX 高级音频功能）
