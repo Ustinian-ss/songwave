@@ -28,9 +28,10 @@ function makeEl(tag = 'div') {
     },
     addEventListener(type, fn) { this._listeners[type] = fn; },
     appendChild(child) { this._children.push(child); return child; },
+    get children() { return this._children; },
     removeAttribute() {},
     querySelector() { return this._qs || (this._qs = makeEl('div')); },
-    querySelectorAll() { return []; },
+    querySelectorAll() { return this._children.slice(); },
     set innerHTML(v) {
       this._html = String(v);
       this._children = [];
@@ -102,6 +103,7 @@ const sandbox = {
         return { ok: true, data: [{ id: 1, name: '晴天', artist: '周杰伦', album: '叶惠美', cover: 'http://c/p.jpg', durationMs: 269000, source: 'netease' }] };
       },
       getPlayUrl: async (id) => ({ ok: true, url: 'https://music.163.com/song/media/outer/url?id=' + id + '.mp3' }),
+      getLyric: async () => ({ ok: true, data: { lrc: '[00:01.00]第一句\n[00:10.00]第二句\n', tlyric: '[00:10.00]Second line' } }),
       openLocalFiles: async () => [],
     },
     addEventListener() {},
@@ -162,7 +164,19 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     ids['btn-play'].onclick();
     check('再点恢复播放', audioEl.paused === false && ids['btn-play'].textContent === '⏸');
 
-    // 5) 单曲列表 next 不越界
+    // 5) 歌词解析与同步高亮
+    check('歌词 2 行已渲染', ids['lyric']._children.length === 2);
+    audioEl.currentTime = 11;
+    audioEl._listeners['timeupdate']();
+    check('第二行高亮（含翻译拼接）', ids['lyric']._children[1].classList.contains('active'));
+    audioEl.currentTime = 0.5;
+    audioEl._listeners['timeupdate']();
+    check('歌前无高亮行', ids['lyric']._children[0].classList.contains('active') === false);
+    audioEl.currentTime = 1.5;
+    audioEl._listeners['timeupdate']();
+    check('回到第一行高亮', ids['lyric']._children[0].classList.contains('active'));
+
+    // 6) 单曲列表 next 不越界
     ids['btn-next'].onclick();
     await flush();
     check('单曲列表 next 不越界', audioEl.src === 'https://music.163.com/song/media/outer/url?id=1.mp3');

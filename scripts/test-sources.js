@@ -14,6 +14,9 @@ async function main() {
   if (list.length) {
     const url = await netease.getPlayUrl(list[0].id);
     console.log('播放直链：', url);
+    const lyric = await netease.getLyric(list[0].id);
+    const firstLines = lyric.lrc.split('\n').filter(Boolean).slice(0, 2).join(' | ');
+    console.log('歌词前两行：', firstLines || '（无歌词）');
   }
   console.log('OK: 音源层工作正常');
 }

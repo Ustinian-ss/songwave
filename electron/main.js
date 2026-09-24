@@ -111,6 +111,15 @@ ipcMain.handle('songwave-play-url', async (_e, id) => {
   }
 });
 
+ipcMain.handle('songwave-lyric', async (_e, id) => {
+  try {
+    const lyric = await netease.getLyric(Number(id));
+    return { ok: true, data: lyric };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
 ipcMain.handle('open-local-files', async () => {
   const r = await dialog.showOpenDialog(win, {
     title: '选择本地音乐',

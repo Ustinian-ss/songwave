@@ -52,6 +52,7 @@
       const key = tab.dataset.tab;
       $('side-search').classList.toggle('hidden', key !== 'search');
       $('side-list').classList.toggle('hidden', key !== 'list');
+      $('side-lyric').classList.toggle('hidden', key !== 'lyric');
     };
   });
 
@@ -96,6 +97,7 @@
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === key));
     $('side-search').classList.toggle('hidden', key !== 'search');
     $('side-list').classList.toggle('hidden', key !== 'list');
+    $('side-lyric').classList.toggle('hidden', key !== 'lyric');
   }
   function renderPlaylist() {
     playlistEl.innerHTML = '';
@@ -128,6 +130,76 @@
     btnPlay.textContent = '▶';
   }
 
+  // —— 歌词 ——
+  const lyricEl = $('lyric');
+  let lyricLines = [];
+  let activeLyricIndex = -1;
+
+  function parseLrc(text) {
+    const out = [];
+    if (!text) return out;
+    const re = /\[(\d{1,2}):(\d{2}(?:\.\d{1,3})?)\]/g;
+    String(text).split('\n').forEach((line) => {
+      let m;
+      let last = 0;
+      const times = [];
+      re.lastIndex = 0;
+      while ((m = re.exec(line))) {
+        times.push(Number(m[1]) * 60 + Number(m[2]));
+        last = re.lastIndex;
+      }
+      const content = line.slice(last).trim();
+      if (!times.length || !content) return;
+      times.forEach((t) => out.push({ t, text: content }));
+    });
+    return out.sort((a, b) => a.t - b.t);
+  }
+  function renderLyric(main, trans) {
+    lyricEl.innerHTML = '';
+    lyricLines = parseLrc(main);
+    activeLyricIndex = -1;
+    if (!lyricLines.length) {
+      lyricEl.innerHTML = '<div class="lyric-empty">暂无歌词</div>';
+      return;
+    }
+    const transByTime = new Map();
+    parseLrc(trans).forEach((l) => { if (!transByTime.has(l.t)) transByTime.set(l.t, l.text); });
+    lyricLines.forEach((line, i) => {
+      const div = document.createElement('div');
+      div.className = 'lyric-line';
+      div.textContent = line.text;
+      const tr = transByTime.get(line.t);
+      if (tr) div.textContent += '\n' + tr;
+      lyricEl.appendChild(div);
+    });
+  }
+  function updateLyricActive(t) {
+    if (!lyricLines.length) return;
+    let idx = -1;
+    for (let i = 0; i < lyricLines.length; i++) {
+      if (lyricLines[i].t <= t) idx = i;
+      else break;
+    }
+    if (idx === activeLyricIndex) return;
+    activeLyricIndex = idx;
+    lyricEl.querySelectorAll('.lyric-line').forEach((el, i) => {
+      el.classList.toggle('active', i === idx);
+    });
+    if (idx >= 0) {
+      const el = lyricEl.children[idx];
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+    }
+  }
+  async function loadLyric(id) {
+    try {
+      const r = await window.songwave.getLyric(id);
+      if (!r.ok) { renderLyric('', ''); return; }
+      renderLyric(r.data.lrc || '', r.data.tlyric || '');
+    } catch (e) {
+      renderLyric('', '');
+    }
+  }
+
   // —— 播放 ——
   // 播放本身走普通 <audio> 输出（不受 CORS 限制）；
   // 可视化优先用“系统音频回环”抓取正在播放的声音（Song-Life 已验证的方案），
@@ -149,6 +221,12 @@
     nowTitle.textContent = item.name || item.label || '未知歌曲';
     nowArtist.textContent = [item.artist, item.album].filter(Boolean).join(' · ') || '—';
     if (item.cover) coverEl.src = item.cover;
+    if (item.type !== 'local' && window.songwave.getLyric) {
+      loadLyric(item.id);
+    } else {
+      lyricLines = [];
+      lyricEl.innerHTML = '<div class="lyric-empty">本地文件暂无歌词</div>';
+    }
     setStatus('播放：' + (item.name || item.label), 2000);
 
     ensureEngine();
@@ -203,6 +281,7 @@
       $('time-total').textContent = fmtTime(audio.duration);
       $('progress').value = Math.round((audio.currentTime / audio.duration) * 1000);
     }
+    updateLyricActive(audio.currentTime);
   });
   $('progress').addEventListener('input', (e) => {
     if (audio.duration && Number.isFinite(audio.duration)) {

@@ -151,6 +151,42 @@
 .list-tools { display: flex; gap: 6px; }
 .list-tools .btn { padding: 0 12px; height: 32px; font-size: 12px; }
 
+/* 歌词面板 */
+.lyric-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lyric-list::-webkit-scrollbar { width: 5px; }
+.lyric-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+.lyric-line {
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12.5px;
+  line-height: 1.6;
+  transition: all 0.3s;
+  cursor: default;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.lyric-line.active {
+  color: #fff;
+  background: rgba(120, 180, 255, 0.16);
+  font-size: 14px;
+  text-shadow: 0 0 12px rgba(120, 180, 255, 0.6);
+}
+.lyric-empty {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px 0;
+}
+
 /* 底部播放条 */
 #player {
   position: fixed;

@@ -14,5 +14,6 @@ contextBridge.exposeInMainWorld('winCtl', {
 contextBridge.exposeInMainWorld('songwave', {
   search: (keywords) => ipcRenderer.invoke('songwave-search', keywords),
   getPlayUrl: (id) => ipcRenderer.invoke('songwave-play-url', id),
+  getLyric: (id) => ipcRenderer.invoke('songwave-lyric', id),
   openLocalFiles: () => ipcRenderer.invoke('open-local-files'),
 });

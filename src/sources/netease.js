@@ -55,4 +55,20 @@ async function getPlayUrl(id) {
   return 'https://music.163.com/song/media/outer/url?id=' + nid + '.mp3';
 }
 
-module.exports = { search, getPlayUrl };
+/**
+ * 获取歌词（免登录公开接口；返回原始 LRC 文本）
+ * @param {number|string} id
+ * @returns {Promise<{lrc: string, tlyric: string}>}
+ */
+async function getLyric(id) {
+  const nid = Number(id);
+  if (!Number.isFinite(nid) || nid <= 0) throw new Error('无效歌曲 id');
+  const url = 'https://music.163.com/api/song/lyric?id=' + nid + '&lv=1&kv=1&tv=-1';
+  const data = await httpJson(url);
+  return {
+    lrc: (data && data.lrc && data.lrc.lyric) || '',
+    tlyric: (data && data.tlyric && data.tlyric.lyric) || '',
+  };
+}
+
+module.exports = { search, getPlayUrl, getLyric };
