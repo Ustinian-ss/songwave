@@ -13,6 +13,8 @@
     "build:win": "electron-builder --win",
     "build:portable": "electron-builder --win portable",
     "build:installer": "electron-builder --win nsis",
+    "test": "node scripts/test-renderer.js",
+    "test:renderer": "node scripts/test-renderer.js",
     "test:sources": "node scripts/test-sources.js"
   },
   "devDependencies": {

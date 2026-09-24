@@ -71,6 +71,13 @@ preload (contextBridge)
 渲染层 audio <audio> ──▶ engine.initFile(audio) ──▶ AnalyserNode ──▶ 可视化引擎
 ```
 
+## 测试
+
+```bash
+npm test               # 渲染层离线端到端测试（最小 DOM 桩，无需 Electron/网络）
+npm run test:sources   # 音源层冒烟测试（需联网，验证网易云接口）
+```
+
 ## 新增音源
 
 在 `src/sources/` 下新建 `xxx.js`，导出 `search(keywords)` 与 `getPlayUrl(id)`，再到 `electron/main.js` 里注册 IPC 即可。

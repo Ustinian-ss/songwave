@@ -176,14 +176,24 @@
   };
   $('btn-prev').onclick = () => { if (playlist.length && current > 0) { current--; renderPlaylist(); playCurrent(); } };
   $('btn-next').onclick = () => { if (playlist.length && current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); } };
-  audio.addEventListener('play', () => { btnPlay.textContent = '⏸'; });
+  audio.addEventListener('play', () => { errorStreak = 0; btnPlay.textContent = '⏸'; });
   audio.addEventListener('pause', () => { btnPlay.textContent = '▶'; });
   audio.addEventListener('ended', () => {
     if (current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); }
     else setStatus('播放列表已播完');
   });
+  // 在线直链对 VIP/版权受限歌曲会失败：自动跳到下一首（连续失败 3 次停止，防死循环）
+  let errorStreak = 0;
   audio.addEventListener('error', () => {
-    if (audio.src) setStatus('播放出错（可能是版权/VIP 限制），试试下一首');
+    if (!audio.src) return;
+    errorStreak++;
+    if (errorStreak > 3) { errorStreak = 0; setStatus('连续播放失败，已停止自动跳过'); return; }
+    if (current < playlist.length - 1) {
+      setStatus('播放失败（版权/VIP 限制），自动下一首');
+      current++; renderPlaylist(); playCurrent();
+    } else {
+      setStatus('播放失败，且已是最后一首');
+    }
   });
 
   // 进度与音量
