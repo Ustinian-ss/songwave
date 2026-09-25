@@ -223,11 +223,35 @@
   // 播放本身走普通 <audio> 输出（不受 CORS 限制）；
   // 可视化优先用“系统音频回环”抓取正在播放的声音（Song-Life 已验证的方案），
   // 回环不可用时退回 initFile（本地文件仍可正常可视化）。
+  let vizWatchdog = null;
+  let silentTicks = 0;
+  // 回环“连上了但没声音”时（振幅恒 0 → 画面像死了一样）自动切到直连模式
+  function startVizWatchdog() {
+    if (vizWatchdog) return;
+    vizWatchdog = setInterval(() => {
+      const st = engine.getState ? engine.getState() : null;
+      if (!st || !st.audioOn) return;
+      const playing = !audio.paused && audio.currentTime > 0;
+      if (playing && !(st.audioLevel > 0.005)) {
+        silentTicks++;
+        if (silentTicks >= 4) {
+          clearInterval(vizWatchdog);
+          vizWatchdog = null;
+          if (typeof engine.initFile === 'function') {
+            try { engine.initFile(audio); setStatus('系统音频无信号，已切换直连可视化', 4000); } catch (e) { /* ignore */ }
+          }
+        }
+      } else {
+        silentTicks = 0;
+      }
+    }, 1000);
+  }
   async function ensureEngine() {
     if (engineStarted) return;
     try {
       await engine.initSystemAudio();
       setStatus('可视化已连接系统音频');
+      startVizWatchdog();
     } catch (e) {
       if (typeof engine.initFile === 'function') engine.initFile(audio);
       setStatus('系统音频不可用，使用直连模式');
@@ -551,20 +575,38 @@
     return { theme: engine.getParam('theme'), params, hint: $('hint-input').value || '' };
   }
   async function enterWallpaperLocal() {
-    // 壁纸窗口自身的启动逻辑：只留可视化，铺满整屏
+    // 壁纸窗口：只留可视化、铺满整屏。
+    // 关键：engine.js 加载后自己就调了 init()，state.audioOn=false 时走 demoEnergy 演示动画，
+    // 所以这里绝不能无条件 ensureEngine()/initFile(空 audio) —— 那会让振幅恒为 0、画面全黑。
     document.body.classList.add('wallpaper');
     if (window.songwave.onWallpaperParams) {
       window.songwave.onWallpaperParams((p) => applyWallpaperParams(p));
     }
-    try {
-      await ensureEngine();
-    } catch (e) { /* 引擎失败也要继续显示 */ }
+    // 引擎在脚本加载时已就绪，参数可以立刻应用（不再等音频初始化）
     engineReady = true;
     if (pendingWallpaperParams) {
       applyWallpaperParams(pendingWallpaperParams);
       pendingWallpaperParams = null;
     }
-    // Esc 退出壁纸模式（窗口可聚焦时；另可用 Ctrl+Alt+W 全局兜底）
+    // 可选增强：壁纸层自己抢一次系统音频回环，拿到真实频谱；
+    // 4 秒内没有电平就退回演示动画（避免“连上了但没声音”导致画面像死了）
+    try {
+      await engine.initSystemAudio();
+      const st = engine.getState ? engine.getState() : null;
+      if (st && st.audioOn) {
+        let ticks = 0;
+        const wd = setInterval(() => {
+          const s = engine.getState ? engine.getState() : null;
+          if (!s || !s.audioOn) { clearInterval(wd); return; }
+          if (s.audioLevel > 0.005) { clearInterval(wd); return; }
+          if (++ticks >= 4) {
+            clearInterval(wd);
+            s.audioOn = false; // 回环无信号 → 回演示动画，绝不黑屏
+          }
+        }, 1000);
+      }
+    } catch (e) { /* 回环不可用：保持演示动画 */ }
+    // Esc 退出壁纸模式（窗口可聚焦时；另有 Ctrl+Alt+W 全局兜底）
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && window.songwave.setWallpaper) window.songwave.setWallpaper(false);
     });
