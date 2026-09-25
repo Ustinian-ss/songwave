@@ -1,5 +1,5 @@
 // 声浪 SongWave · Electron 主进程
-const { app, BrowserWindow, ipcMain, dialog, session, desktopCapturer, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, desktopCapturer, screen, globalShortcut } = require('electron');
 const path = require('path');
 
 const netease = require('../src/sources/netease');
@@ -122,6 +122,11 @@ ipcMain.on('win-minimize', () => { if (win) win.minimize(); });
 ipcMain.on('win-toggle-maximize', () => { if (win) (win.isMaximized() ? win.unmaximize() : win.maximize()); });
 ipcMain.on('win-close', () => { if (win) win.close(); });
 ipcMain.handle('win-is-maximized', () => (win ? win.isMaximized() : false));
+ipcMain.handle('win-set-fullscreen', (_e, on) => {
+  if (!win) return { ok: false };
+  win.setFullScreen(!!on);
+  return { ok: true, on: win.isFullScreen() };
+});
 
 function setupMaximizeEvents() {
   win.on('maximize', () => win.webContents.send('win-maximized-changed', true));
@@ -238,15 +243,24 @@ ipcMain.handle('songwave-default-save-dir', () => DEFAULT_SAVE_DIR);
 
 // —— 壁纸模式（模仿 Wallpaper Engine：独立桌面层窗口，无边框、不抢焦点、尽量置底） ——
 function createWallpaperWindow() {
-  const { width, height } = screen.getPrimaryDisplay().bounds;
+  // 铺满主窗口所在的那块屏幕（多屏时跟随用户当前屏幕）
+  let bounds;
+  try {
+    bounds = screen.getDisplayMatching(win ? win.getBounds() : {}).bounds;
+  } catch (e) {
+    bounds = screen.getPrimaryDisplay().bounds;
+  }
   wallpaperWin = new BrowserWindow({
-    x: 0, y: 0, width, height,
+    x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
     frame: false,
     backgroundColor: '#000000',
     skipTaskbar: true,
     focusable: false,
     resizable: false,
     movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
     hasShadow: false,
     show: false,
     webPreferences: {
@@ -257,25 +271,59 @@ function createWallpaperWindow() {
     },
   });
   wallpaperWin.loadFile(path.join(__dirname, '..', 'app', 'index.html'), { query: { mode: 'wallpaper' } });
-  wallpaperWin.once('ready-to-show', () => {
+
+  const pushParams = () => {
     if (!wallpaperWin) return;
-    wallpaperWin.showInactive();
     if (wallpaperParams) {
       try { wallpaperWin.webContents.send('wallpaper-params', wallpaperParams); } catch (e) { /* ignore */ }
     }
+  };
+  wallpaperWin.webContents.on('did-finish-load', () => { pushParams(); });
+  wallpaperWin.once('ready-to-show', () => {
+    if (!wallpaperWin) return;
+    wallpaperWin.showInactive();   // 不抢焦点地显示
+    pushParams();
   });
-  // Windows 支持置底；部分环境不支持时忽略即可
-  try { wallpaperWin.setAlwaysOnBottom(true); } catch (e) { /* ignore */ }
+
+  // 置底（Windows 支持）；不支持的平台/环境则退化为普通窗口，并在返回值里告知渲染层
+  let alwaysOnBottom = false;
+  try {
+    wallpaperWin.setAlwaysOnBottom(true);
+    alwaysOnBottom = true;
+  } catch (e) {
+    alwaysOnBottom = false;
+  }
   try { wallpaperWin.setIgnoreMouseEvents(true); } catch (e) { /* ignore */ }
-  wallpaperWin.on('closed', () => { wallpaperWin = null; });
-  return wallpaperWin;
+
+  wallpaperWin.on('closed', () => {
+    wallpaperWin = null;
+    notifyWallpaperState(false);
+  });
+  return { win: wallpaperWin, alwaysOnBottom };
 }
 
-ipcMain.handle('songwave-wallpaper', (_e, on) => {
-  if (on && !wallpaperWin) createWallpaperWindow();
-  else if (!on && wallpaperWin) { wallpaperWin.close(); wallpaperWin = null; }
-  return { ok: true, on: !!wallpaperWin };
-});
+function notifyWallpaperState(on) {
+  if (win && !win.isDestroyed()) {
+    try { win.webContents.send('wallpaper-state', !!on); } catch (e) { /* ignore */ }
+  }
+}
+
+function toggleWallpaper(on) {
+  if (on && !wallpaperWin) {
+    const r = createWallpaperWindow();
+    notifyWallpaperState(true);
+    return { ok: true, on: true, alwaysOnBottom: r.alwaysOnBottom, platform: process.platform };
+  }
+  if (!on && wallpaperWin) {
+    try { wallpaperWin.close(); } catch (e) { /* ignore */ }
+    wallpaperWin = null;
+    notifyWallpaperState(false);
+    return { ok: true, on: false, platform: process.platform };
+  }
+  return { ok: true, on: !!wallpaperWin, alwaysOnBottom: process.platform === 'win32', platform: process.platform };
+}
+
+ipcMain.handle('songwave-wallpaper', (_e, on) => toggleWallpaper(on));
 
 ipcMain.handle('songwave-wallpaper-params', (_e, params) => {
   wallpaperParams = params || null;
@@ -283,6 +331,21 @@ ipcMain.handle('songwave-wallpaper-params', (_e, params) => {
     try { wallpaperWin.webContents.send('wallpaper-params', wallpaperParams); } catch (e) { /* ignore */ }
   }
   return { ok: true };
+});
+
+// 兜底逃生通道：即使壁纸层点击穿透/无法聚焦，也能用 Ctrl+Alt+W 关闭
+app.whenReady().then(() => {
+  try {
+    globalShortcut.register('CommandOrControl+Alt+W', () => {
+      toggleWallpaper(!wallpaperWin);
+    });
+  } catch (e) {
+    console.log('[songwave] 全局快捷键注册失败:', e && e.message);
+  }
+});
+
+app.on('will-quit', () => {
+  try { globalShortcut.unregisterAll(); } catch (e) { /* ignore */ }
 });
 
 // 主窗口关闭时同步关掉壁纸层

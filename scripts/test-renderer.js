@@ -121,6 +121,7 @@ const sandbox = {
       setWallpaper: async (on) => { lastWallpaper = on; return { ok: true, on }; },
       pushWallpaperParams: (p) => { lastWallpaperParams = p; return { ok: true }; },
       onWallpaperParams: () => {},
+      onWallpaperState: () => {},
     },
     addEventListener() {},
     innerWidth: 1280,

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('winCtl', {
   toggleMaximize: () => ipcRenderer.send('win-toggle-maximize'),
   close: () => ipcRenderer.send('win-close'),
   isMaximized: () => ipcRenderer.invoke('win-is-maximized'),
+  setFullScreen: (on) => ipcRenderer.invoke('win-set-fullscreen', on),
   onMaximizeChange: (cb) => {
     ipcRenderer.on('win-maximized-changed', (_e, val) => cb(val));
   },
@@ -28,5 +29,8 @@ contextBridge.exposeInMainWorld('songwave', {
   pushWallpaperParams: (params) => ipcRenderer.invoke('songwave-wallpaper-params', params),
   onWallpaperParams: (cb) => {
     ipcRenderer.on('wallpaper-params', (_e, params) => cb(params));
+  },
+  onWallpaperState: (cb) => {
+    ipcRenderer.on('wallpaper-state', (_e, on) => cb(on));
   },
 });

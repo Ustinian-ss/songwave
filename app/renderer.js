@@ -342,6 +342,7 @@
     else if (k === 'm' || k === 'M') { audio.muted = !audio.muted; setStatus(audio.muted ? '已静音（M 取消）' : '已恢复声音', 1200); }
     else if (k === 'n' || k === 'N') { if (playlist.length && current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); } }
     else if (k === 'p' || k === 'P') { if (playlist.length && current > 0) { current--; renderPlaylist(); playCurrent(); } }
+    else if ((k === 'Escape' || k === 'w' || k === 'W') && immersive) { e.preventDefault(); exitImmersive(); }
   });
   // 播放条上滚动滚轮调音量
   $('player').addEventListener('wheel', (e) => {
@@ -527,8 +528,12 @@
 
   // —— 壁纸模式（模仿 Wallpaper Engine） ——
   let wallpaperOn = false;
+  let engineReady = false;          // 引擎初始化完成后才能吃主题/参数
+  let pendingWallpaperParams = null; // 初始化前的参数先缓存
+  
   function applyWallpaperParams(p) {
     if (!p) return;
+    if (!engineReady) { pendingWallpaperParams = p; return; }
     if (p.theme && engine.getThemes().some((t) => t.key === p.theme)) {
       engine.setTheme(p.theme);
       themesEl.querySelectorAll('.theme').forEach((b) => b.classList.toggle('active', b.dataset.key === p.theme));
@@ -545,31 +550,68 @@
     pKeys.forEach(([, key]) => { params[key] = engine.getParam(key); });
     return { theme: engine.getParam('theme'), params, hint: $('hint-input').value || '' };
   }
-  function enterWallpaperLocal() {
+  async function enterWallpaperLocal() {
     // 壁纸窗口自身的启动逻辑：只留可视化，铺满整屏
     document.body.classList.add('wallpaper');
-    ensureEngine();
     if (window.songwave.onWallpaperParams) {
       window.songwave.onWallpaperParams((p) => applyWallpaperParams(p));
     }
-    // Esc 退出壁纸模式
+    try {
+      await ensureEngine();
+    } catch (e) { /* 引擎失败也要继续显示 */ }
+    engineReady = true;
+    if (pendingWallpaperParams) {
+      applyWallpaperParams(pendingWallpaperParams);
+      pendingWallpaperParams = null;
+    }
+    // Esc 退出壁纸模式（窗口可聚焦时；另可用 Ctrl+Alt+W 全局兜底）
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && window.songwave.setWallpaper) window.songwave.setWallpaper(false);
     });
   }
   const wallpaperBtn = $('btn-wallpaper');
+  let immersive = false;
+  function enterImmersive(msg) {
+    immersive = true;
+    document.body.classList.add('wallpaper');
+    if (window.winCtl && window.winCtl.setFullScreen) window.winCtl.setFullScreen(true);
+    setStatus(msg || '沉浸模式已开启（Esc 或 W 退出）', 4500);
+  }
+  function exitImmersive() {
+    immersive = false;
+    document.body.classList.remove('wallpaper');
+    if (window.winCtl && window.winCtl.setFullScreen) window.winCtl.setFullScreen(false);
+    setStatus('已退出沉浸模式', 2500);
+  }
+  function setWallpaperButtonState(on) {
+    wallpaperOn = !!on;
+    if (wallpaperBtn) wallpaperBtn.classList.toggle('active', wallpaperOn);
+  }
+  if (window.songwave.onWallpaperState) {
+    // 主进程侧状态变化（全局快捷键 Ctrl+Alt+W / 壁纸窗口关闭）时保持按钮同步
+    window.songwave.onWallpaperState((on) => setWallpaperButtonState(on));
+  }
   if (wallpaperBtn) {
     wallpaperBtn.onclick = async () => {
       if (!window.songwave.setWallpaper) return;
-      wallpaperOn = !wallpaperOn;
-      wallpaperBtn.classList.toggle('active', wallpaperOn);
-      const r = await window.songwave.setWallpaper(wallpaperOn);
-      if (r && r.on) {
+      if (immersive) { exitImmersive(); return; }
+      const want = !wallpaperOn;
+      const r = await window.songwave.setWallpaper(want);
+      const actual = !!(r && r.on);
+      setWallpaperButtonState(actual);
+      if (actual) {
         if (window.songwave.pushWallpaperParams) window.songwave.pushWallpaperParams(currentWallpaperParams());
-        setStatus('壁纸模式已开启（桌面底层，Esc 退出）', 4000);
+        if (r && r.alwaysOnBottom === false) {
+          // 系统不支持置底：桌面层会挡住其它窗口，改用窗口内沉浸模式
+          await window.songwave.setWallpaper(false);
+          setWallpaperButtonState(false);
+          enterImmersive('系统不支持桌面置底，已改用沉浸模式（Esc 或 W 退出）');
+        } else {
+          setStatus('壁纸模式已开启（桌面底层；Ctrl+Alt+W 或再点此按钮退出）', 5000);
+        }
+      } else if (want) {
+        enterImmersive('壁纸层不可用，已改用沉浸模式（Esc 或 W 退出）');
       } else {
-        wallpaperOn = false;
-        wallpaperBtn.classList.remove('active');
         setStatus('壁纸模式已关闭', 2500);
       }
     };
