@@ -30,12 +30,15 @@ function makeEl(tag = 'div') {
     appendChild(child) { this._children.push(child); return child; },
     get children() { return this._children; },
     removeAttribute() {},
-    querySelector() { return this._qs || (this._qs = makeEl('div')); },
+    querySelector(sel) {
+      this._qsMap = this._qsMap || {};
+      return this._qsMap[sel] || (this._qsMap[sel] = makeEl('div'));
+    },
     querySelectorAll() { return this._children.slice(); },
     set innerHTML(v) {
       this._html = String(v);
       this._children = [];
-      this._qs = undefined;
+      this._qsMap = {};
     },
     get innerHTML() { return this._html || ''; },
   };
@@ -63,6 +66,9 @@ function makeAudioEl() {
 
 // ---------- 全局桩 ----------
 const ids = {};
+let lastDownload = null;
+let lastWallpaper = null;
+let lastWallpaperParams = null;
 const tabEls = [
   { dataset: { tab: 'search' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
   { dataset: { tab: 'list' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
@@ -107,6 +113,14 @@ const sandbox = {
       getLyric: async () => ({ ok: true, data: { lrc: '[00:01.00]第一句\n[00:10.00]第二句\n', tlyric: '[00:10.00]Second line' } }),
       openLocalFiles: async () => [],
       getLxStatus: async () => ({ ok: true, loaded: true, name: 'flower', sourceKeys: ['kw', 'mg'], searchSources: [] }),
+      getDefaultSaveDir: async () => 'D:/musicdownload',
+      download: async (o) => { lastDownload = o; return { ok: true, filePath: 'D:/musicdownload/' + o.filename }; },
+      cancelDownload: async () => ({ ok: true }),
+      chooseSaveDir: async () => ({ ok: false }),
+      onDownloadProgress: () => {},
+      setWallpaper: async (on) => { lastWallpaper = on; return { ok: true, on }; },
+      pushWallpaperParams: (p) => { lastWallpaperParams = p; return { ok: true }; },
+      onWallpaperParams: () => {},
     },
     addEventListener() {},
     innerWidth: 1280,
@@ -219,6 +233,23 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     // 11) lx 音源状态提示
     await flush();
     check('lx 状态提示已更新', /flower/.test(ids['lx-status'].textContent));
+
+    // 12) 下载：搜索结果行的 ⤓ 按钮 → 解析直链 → 调下载 → 状态提示
+    const dlRow = ids['results']._children[0];
+    await dlRow.querySelector('.t-dl').onclick({ stopPropagation() {} });
+    await flush();
+    await flush();
+    check('下载参数含文件名', /晴天/.test((lastDownload || {}).filename || ''), JSON.stringify(lastDownload));
+    check('下载参数用默认目录', (lastDownload || {}).saveDir === 'D:/musicdownload');
+    check('下载完成状态提示', /已下载/.test(ids['status'].textContent), ids['status'].textContent);
+
+    // 13) 壁纸模式
+    await ids['btn-wallpaper'].onclick();
+    await flush();
+    await flush();
+    check('壁纸模式已开启', lastWallpaper === true);
+    check('壁纸参数已推送（含主题）', !!(lastWallpaperParams && lastWallpaperParams.theme), JSON.stringify(lastWallpaperParams));
+    check('壁纸开启状态提示', /壁纸模式已开启/.test(ids['status'].textContent), ids['status'].textContent);
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
     process.exit(fail ? 1 : 0);

@@ -15,6 +15,11 @@
 
   const engine = window.SongLife;
 
+  // 壁纸模式：同一套代码，用 ?mode=wallpaper 在桌面层窗口里只渲染可视化
+  const IS_WALLPAPER = (typeof location !== 'undefined' && location.search)
+    ? /mode=wallpaper/.test(location.search)
+    : false;
+
   let playlist = [];
   let current = -1;
   let engineStarted = false;
@@ -82,7 +87,10 @@
         '<span class="t-name">' + esc(item.name) + '</span>' +
         '<span class="t-artist">' + esc(item.artist) + '</span>' +
         badge +
+        '<button class="t-dl" title="下载">⤓</button>' +
         '<button class="t-remove" title="加入播放列表">＋</button>';
+      const dlBtn = row.querySelector('.t-dl');
+      if (dlBtn) dlBtn.onclick = (e) => { e.stopPropagation(); downloadItem(item); };
       row.querySelector('.t-remove').onclick = (e) => { e.stopPropagation(); addAndPlay(item); };
       row.onclick = () => addAndPlay(item);
       resultsEl.appendChild(row);
@@ -111,7 +119,10 @@
       row.innerHTML =
         '<span class="t-name">' + esc(it.name || it.label) + '</span>' +
         '<span class="t-artist">' + esc(it.artist || '') + '</span>' +
+        (it.type === 'local' ? '' : '<button class="t-dl" title="下载">⤓</button>') +
         '<button class="t-remove" title="移出列表">✕</button>';
+      const dlBtn = row.querySelector('.t-dl');
+      if (dlBtn) dlBtn.onclick = (e) => { e.stopPropagation(); downloadItem(it); };
       row.querySelector('.t-remove').onclick = (e) => {
         e.stopPropagation();
         playlist.splice(i, 1);
@@ -376,6 +387,60 @@
     renderPlaylist();
   };
 
+  // —— 下载 ——
+  let saveDir = '';
+  const dlState = { name: '' };
+  function fmtBytes(n) {
+    if (!n) return '0 B';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+    return (n / 1024 / 1024).toFixed(1) + ' MB';
+  }
+  async function ensureSaveDir() {
+    if (saveDir) return saveDir;
+    try { saveDir = localStorage.getItem('songwave.saveDir') || ''; } catch (e) { saveDir = ''; }
+    if (!saveDir && window.songwave.getDefaultSaveDir) {
+      try { saveDir = await window.songwave.getDefaultSaveDir() || ''; } catch (e) { saveDir = ''; }
+    }
+    return saveDir;
+  }
+  if (window.songwave.onDownloadProgress) {
+    window.songwave.onDownloadProgress((p) => {
+      if (!p || p.name !== dlState.name) return;
+      const pct = p.total > 0 ? p.percent + '%' : fmtBytes(p.loaded);
+      setStatus('下载中 ' + p.name + ' ' + pct, 0);
+    });
+  }
+  async function downloadItem(item) {
+    if (!item || item.type === 'local' || !window.songwave.download) return;
+    setStatus('正在获取下载地址…', 0);
+    try {
+      const r = await window.songwave.getPlayUrl({
+        source: item.source, id: item.id, lxSource: item.lxSource, quality: item.quality,
+      });
+      if (!r.ok) { setStatus('下载失败：' + r.error, 5000); return; }
+      const dir = await ensureSaveDir();
+      dlState.name = (item.artist ? item.artist + ' - ' : '') + (item.name || 'song');
+      const res = await window.songwave.download({
+        url: r.url, filename: dlState.name + '.mp3', name: dlState.name, saveDir: dir,
+      });
+      if (res.ok) setStatus('已下载：' + res.filePath, 6000);
+      else if (res.canceled) setStatus('下载已取消', 3000);
+      else setStatus('下载失败：' + res.error, 6000);
+    } catch (e) {
+      setStatus('下载异常：' + (e && e.message || e), 6000);
+    }
+  }
+  $('btn-save-dir').onclick = async () => {
+    if (!window.songwave.chooseSaveDir) return;
+    const r = await window.songwave.chooseSaveDir();
+    if (r && r.ok) {
+      saveDir = r.dir;
+      try { localStorage.setItem('songwave.saveDir', saveDir); } catch (e) { /* ignore */ }
+      setStatus('下载目录：' + saveDir, 4000);
+    }
+  };
+
   // —— 可视化：主题 / 参数（复用 Song-Life 引擎） ——
   const themesEl = $('themes');
   const pKeys = [
@@ -436,6 +501,10 @@
         },
       }));
     } catch (e) { /* ignore */ }
+    // 同步给壁纸窗口
+    if (!IS_WALLPAPER && wallpaperOn && window.songwave.pushWallpaperParams) {
+      try { window.songwave.pushWallpaperParams(currentWallpaperParams()); } catch (e) { /* ignore */ }
+    }
   }
   function loadState() {
     let s;
@@ -456,8 +525,59 @@
     themesEl.querySelectorAll('.theme').forEach((b) => b.classList.toggle('active', b.dataset.key === st.theme));
   }
 
+  // —— 壁纸模式（模仿 Wallpaper Engine） ——
+  let wallpaperOn = false;
+  function applyWallpaperParams(p) {
+    if (!p) return;
+    if (p.theme && engine.getThemes().some((t) => t.key === p.theme)) {
+      engine.setTheme(p.theme);
+      themesEl.querySelectorAll('.theme').forEach((b) => b.classList.toggle('active', b.dataset.key === p.theme));
+    }
+    if (p.params) {
+      Object.keys(p.params).forEach((k) => {
+        if (p.params[k] !== undefined && p.params[k] !== null) engine.setParam(k, p.params[k]);
+      });
+    }
+    if (p.hint && hintEl) hintEl.textContent = p.hint;
+  }
+  function currentWallpaperParams() {
+    const params = {};
+    pKeys.forEach(([, key]) => { params[key] = engine.getParam(key); });
+    return { theme: engine.getParam('theme'), params, hint: $('hint-input').value || '' };
+  }
+  function enterWallpaperLocal() {
+    // 壁纸窗口自身的启动逻辑：只留可视化，铺满整屏
+    document.body.classList.add('wallpaper');
+    ensureEngine();
+    if (window.songwave.onWallpaperParams) {
+      window.songwave.onWallpaperParams((p) => applyWallpaperParams(p));
+    }
+    // Esc 退出壁纸模式
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && window.songwave.setWallpaper) window.songwave.setWallpaper(false);
+    });
+  }
+  const wallpaperBtn = $('btn-wallpaper');
+  if (wallpaperBtn) {
+    wallpaperBtn.onclick = async () => {
+      if (!window.songwave.setWallpaper) return;
+      wallpaperOn = !wallpaperOn;
+      wallpaperBtn.classList.toggle('active', wallpaperOn);
+      const r = await window.songwave.setWallpaper(wallpaperOn);
+      if (r && r.on) {
+        if (window.songwave.pushWallpaperParams) window.songwave.pushWallpaperParams(currentWallpaperParams());
+        setStatus('壁纸模式已开启（桌面底层，Esc 退出）', 4000);
+      } else {
+        wallpaperOn = false;
+        wallpaperBtn.classList.remove('active');
+        setStatus('壁纸模式已关闭', 2500);
+      }
+    };
+  }
+
   // —— 引导逻辑 ——
   function boot() {
+    if (IS_WALLPAPER) { enterWallpaperLocal(); return; }
     renderThemes();
     bindParams();
     loadState();

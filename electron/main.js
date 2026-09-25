@@ -1,11 +1,14 @@
 // 声浪 SongWave · Electron 主进程
-const { app, BrowserWindow, ipcMain, dialog, session, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, desktopCapturer, screen } = require('electron');
 const path = require('path');
 
 const netease = require('../src/sources/netease');
 const lxSource = require('../src/sources/lx-source');
+const { downloadFile } = require('../src/download');
 
 let win = null;
+let wallpaperWin = null;
+let wallpaperParams = null;
 
 // —— LX 用户音源（懒加载，可插拔；默认 flower.js，可用 SONGWAVE_LX_SCRIPT 指定） ——
 const LX_SCRIPT = process.env.SONGWAVE_LX_SCRIPT || 'D:\\小程序\\lxmusic\\flower-v1.0.0.js';
@@ -185,4 +188,104 @@ ipcMain.handle('open-local-files', async () => {
   });
   if (r.canceled) return [];
   return r.filePaths;
+});
+
+// —— 下载 ——
+const DEFAULT_SAVE_DIR = process.env.SONGWAVE_SAVE_DIR || 'D:\\musicdownload';
+const activeDownloads = new Map();
+let dlSeq = 0;
+
+ipcMain.handle('songwave-download', async (e, payload) => {
+  const id = ++dlSeq;
+  const url = payload && payload.url;
+  const dir = (payload && payload.saveDir) || DEFAULT_SAVE_DIR;
+  try {
+    if (!url) return { ok: false, id, error: '缺少下载地址' };
+    const job = downloadFile(url, dir, {
+      filename: (payload && payload.filename) || 'download.mp3',
+      onProgress: (p) => {
+        try { e.sender.send('songwave-download-progress', { id, name: payload && payload.name, ...p }); } catch (err) { /* 窗口已关闭 */ }
+      },
+    });
+    activeDownloads.set(id, job);
+    const r = await job.promise;
+    return { ok: true, id, filePath: r.filePath, bytes: r.bytes, saveDir: dir };
+  } catch (err) {
+    if (err && err.code === 'ECANCELED') return { ok: false, id, canceled: true };
+    return { ok: false, id, error: String(err && err.message || err) };
+  } finally {
+    activeDownloads.delete(id);
+  }
+});
+
+ipcMain.handle('songwave-download-cancel', (_e, id) => {
+  const job = activeDownloads.get(Number(id));
+  if (job) { job.cancel(); return { ok: true }; }
+  return { ok: false, error: '任务不存在或已结束' };
+});
+
+ipcMain.handle('songwave-choose-save-dir', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: '选择下载目录',
+    defaultPath: DEFAULT_SAVE_DIR,
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (r.canceled || !r.filePaths.length) return { ok: false };
+  return { ok: true, dir: r.filePaths[0] };
+});
+
+ipcMain.handle('songwave-default-save-dir', () => DEFAULT_SAVE_DIR);
+
+// —— 壁纸模式（模仿 Wallpaper Engine：独立桌面层窗口，无边框、不抢焦点、尽量置底） ——
+function createWallpaperWindow() {
+  const { width, height } = screen.getPrimaryDisplay().bounds;
+  wallpaperWin = new BrowserWindow({
+    x: 0, y: 0, width, height,
+    frame: false,
+    backgroundColor: '#000000',
+    skipTaskbar: true,
+    focusable: false,
+    resizable: false,
+    movable: false,
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      autoplayPolicy: 'no-user-gesture-required',
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  wallpaperWin.loadFile(path.join(__dirname, '..', 'app', 'index.html'), { query: { mode: 'wallpaper' } });
+  wallpaperWin.once('ready-to-show', () => {
+    if (!wallpaperWin) return;
+    wallpaperWin.showInactive();
+    if (wallpaperParams) {
+      try { wallpaperWin.webContents.send('wallpaper-params', wallpaperParams); } catch (e) { /* ignore */ }
+    }
+  });
+  // Windows 支持置底；部分环境不支持时忽略即可
+  try { wallpaperWin.setAlwaysOnBottom(true); } catch (e) { /* ignore */ }
+  try { wallpaperWin.setIgnoreMouseEvents(true); } catch (e) { /* ignore */ }
+  wallpaperWin.on('closed', () => { wallpaperWin = null; });
+  return wallpaperWin;
+}
+
+ipcMain.handle('songwave-wallpaper', (_e, on) => {
+  if (on && !wallpaperWin) createWallpaperWindow();
+  else if (!on && wallpaperWin) { wallpaperWin.close(); wallpaperWin = null; }
+  return { ok: true, on: !!wallpaperWin };
+});
+
+ipcMain.handle('songwave-wallpaper-params', (_e, params) => {
+  wallpaperParams = params || null;
+  if (wallpaperWin) {
+    try { wallpaperWin.webContents.send('wallpaper-params', wallpaperParams); } catch (e) { /* ignore */ }
+  }
+  return { ok: true };
+});
+
+// 主窗口关闭时同步关掉壁纸层
+app.on('before-quit', () => {
+  if (wallpaperWin) { try { wallpaperWin.destroy(); } catch (e) { /* ignore */ } wallpaperWin = null; }
 });

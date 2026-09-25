@@ -160,9 +160,28 @@
   border-radius: 4px;
 }
 .track .t-remove:hover { color: #ff6b6b; }
+.track .t-dl {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.track .t-dl:hover { color: #6bd6a0; }
 
 .list-tools { display: flex; gap: 6px; }
 .list-tools .btn { padding: 0 12px; height: 32px; font-size: 12px; }
+
+/* 壁纸模式：只留可视化铺满桌面 */
+body.wallpaper #ui,
+body.wallpaper #sidebar,
+body.wallpaper #player,
+body.wallpaper #panel,
+body.wallpaper #status { display: none !important; }
+body.wallpaper #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; }
 
 /* 侧栏底部：音源状态 */
 .lx-status {

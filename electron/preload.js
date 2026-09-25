@@ -17,4 +17,16 @@ contextBridge.exposeInMainWorld('songwave', {
   getLyric: (id) => ipcRenderer.invoke('songwave-lyric', id),
   openLocalFiles: () => ipcRenderer.invoke('open-local-files'),
   getLxStatus: () => ipcRenderer.invoke('songwave-lx-status'),
+  download: (payload) => ipcRenderer.invoke('songwave-download', payload),
+  cancelDownload: (id) => ipcRenderer.invoke('songwave-download-cancel', id),
+  chooseSaveDir: () => ipcRenderer.invoke('songwave-choose-save-dir'),
+  getDefaultSaveDir: () => ipcRenderer.invoke('songwave-default-save-dir'),
+  onDownloadProgress: (cb) => {
+    ipcRenderer.on('songwave-download-progress', (_e, p) => cb(p));
+  },
+  setWallpaper: (on) => ipcRenderer.invoke('songwave-wallpaper', on),
+  pushWallpaperParams: (params) => ipcRenderer.invoke('songwave-wallpaper-params', params),
+  onWallpaperParams: (cb) => {
+    ipcRenderer.on('wallpaper-params', (_e, params) => cb(params));
+  },
 });
