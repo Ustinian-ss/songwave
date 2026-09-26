@@ -1,7 +1,7 @@
 {
   "name": "songwave",
   "productName": "声浪 SongWave",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "声浪 SongWave · LX 逻辑音画播放器：播放模式/进度记忆/倍速/定时停止 + 我喜欢/播放历史/搜索历史 + 多平台音源与 lx 音源导入 + WE 壁纸背景 + 可视化",
   "main": "electron/main.js",
   "author": "SongWave",
@@ -19,13 +19,14 @@
     "test:lx": "node scripts/test-lx-runtime.js",
     "test:download": "node scripts/test-download.js",
     "build:dir": "electron-builder --win --dir",
-    "test:all": "node scripts/test-renderer.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-platforms.js && node scripts/test-wallpaper-engine.js && node scripts/test-source-manager.js && node scripts/test-lx-import.js && node scripts/test-playlist-import.js && node scripts/test-lx-runtime.js",
+    "test:all": "node scripts/test-renderer.js && node scripts/test-match.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-platforms.js && node scripts/test-wallpaper-engine.js && node scripts/test-source-manager.js && node scripts/test-lx-import.js && node scripts/test-playlist-import.js && node scripts/test-lx-runtime.js",
     "test:wallpaper": "node scripts/test-wallpaper.js",
     "test:platforms": "node scripts/test-platforms.js",
     "test:we": "node scripts/test-wallpaper-engine.js",
     "test:srcmgr": "node scripts/test-source-manager.js",
     "test:lximp": "node scripts/test-lx-import.js",
-    "test:plimp": "node scripts/test-playlist-import.js"
+    "test:plimp": "node scripts/test-playlist-import.js",
+    "test:match": "node scripts/test-match.js"
   },
   "devDependencies": {
     "electron": "^32.0.0",

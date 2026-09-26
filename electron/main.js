@@ -317,6 +317,31 @@ ipcMain.handle('songwave-sources', () => ({
   ],
 }));
 
+// 换源：某首歌取链失败时，用「歌名+歌手」到其它平台找同一首歌
+const { pickAlternatives } = require('../src/match');
+ipcMain.handle('songwave-alt-sources', async (_e, payload) => {
+  try {
+    const q = {
+      name: payload && payload.name,
+      artist: payload && payload.artist,
+      durationMs: payload && payload.durationMs,
+    };
+    const kw = [q.name, q.artist].filter(Boolean).join(' ').trim();
+    if (!kw) return { ok: false, error: '缺少歌名，无法换源' };
+    const exclude = (payload && payload.excludeSources) || [];
+    const tasks = [];
+    if (!exclude.includes('netease')) tasks.push(netease.search(kw, 8).catch(() => []));
+    platforms.PLATFORMS.forEach((p2) => {
+      if (!exclude.includes(p2.key)) tasks.push(p2.search(kw, 8).catch(() => []));
+    });
+    const groups = await Promise.all(tasks);
+    const alternatives = pickAlternatives(q, groups, { excludeSources: exclude, limit: 6 });
+    return { ok: true, alternatives };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
 ipcMain.handle('songwave-search', async (_e, keywords, sourceKey) => {
   if (!keywords || !String(keywords).trim()) return { ok: false, error: '关键词为空' };
   const kw = String(keywords).trim();

@@ -134,6 +134,31 @@
     </div>
   </div>
 
+  <!-- 播放详情页：点左下角封面进入，歌词居中显示 -->
+  <div id="now-playing" class="hidden">
+    <div class="np-close" id="np-close" title="关闭（Esc）">✕</div>
+    <div class="np-body">
+      <div class="np-left">
+        <div class="np-disc" id="np-disc"><img id="np-cover" alt=""><div class="np-hole"></div></div>
+        <div class="np-title" id="np-title">未在播放</div>
+        <div class="np-artist" id="np-artist">—</div>
+        <div class="np-progress">
+          <span id="np-cur">0:00</span>
+          <input type="range" id="np-progress" min="0" max="1000" value="0">
+          <span id="np-total">0:00</span>
+        </div>
+        <div class="np-tools">
+          <button class="btn" id="np-prev" title="上一首">⏮</button>
+          <button class="btn btn-primary" id="np-play" title="播放 / 暂停">▶</button>
+          <button class="btn" id="np-next" title="下一首">⏭</button>
+          <button class="btn" id="np-fav" title="收藏">♡</button>
+          <button class="btn" id="np-mode" title="播放模式">➡</button>
+        </div>
+      </div>
+      <div class="np-lyric" id="np-lyric"><div class="lyric-empty">播放歌曲后这里显示歌词</div></div>
+    </div>
+  </div>
+
   <!-- 右侧：可视化参数面板（复用 Song-Life） -->
   <div id="panel">
     <div class="panel-head">
@@ -158,6 +183,9 @@
         </div>
         <div class="row src-tools">
           <span class="src-hint" id="src-hint">未装入音源时，QQ/酷狗/酷我/咪咕 无法播放</span>
+        </div>
+        <div class="row src-tools">
+          <label class="chk"><input type="checkbox" id="chk-autoswitch" checked> 播放失败自动换源（换平台找同一首歌）</label>
         </div>
         <div id="src-list"><div class="we-empty">加载中…</div></div>
       </div>
@@ -258,9 +286,26 @@
           <label>音柱材质</label>
           <select id="p-barstyle">
             <option value="glass" selected>玻璃（半透明）</option>
+            <option value="acrylic">亚克力（磨砂）</option>
             <option value="solid">实心</option>
             <option value="glow">发光</option>
           </select>
+        </div>
+        <div class="param">
+          <label>材质模糊 <span id="v-barblur">6px</span></label>
+          <input type="range" id="p-barblur" min="0" max="30" step="1" value="6">
+        </div>
+        <div class="param">
+          <label>材质透明度 <span id="v-baralpha">1.00</span></label>
+          <input type="range" id="p-baralpha" min="0.2" max="2" step="0.05" value="1">
+        </div>
+        <div class="param">
+          <label>高光强度 <span id="v-barglow">1.00</span></label>
+          <input type="range" id="p-barglow" min="0" max="2" step="0.05" value="1">
+        </div>
+        <div class="param">
+          <label>柱体圆角 <span id="v-barround">2px</span></label>
+          <input type="range" id="p-barround" min="0" max="14" step="1" value="2">
         </div>
       </div>
       <div class="panel-group">

@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('songwave', {
   srcImportLx: (only) => ipcRenderer.invoke('songwave-src-import-lx', only),
   srcImportDir: () => ipcRenderer.invoke('songwave-src-import-dir'),
   srcUpdate: (id) => ipcRenderer.invoke('songwave-src-update', id),
+  altSources: (payload) => ipcRenderer.invoke('songwave-alt-sources', payload),
   playlistImport: (payload) => ipcRenderer.invoke('songwave-playlist-import', payload),
   playlistImportFile: () => ipcRenderer.invoke('songwave-playlist-import-file'),
 });

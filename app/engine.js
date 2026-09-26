@@ -36,7 +36,11 @@
     theme: 'deepsea',
     hueShift: 0,        // 色相偏移（自定义颜色，-180~180）
     mouseWave: 1.0,     // 鼠标波动强度（0=关闭，只是轻微波动）
-    barStyle: 'glass',  // 音柱材质：glass(玻璃) / solid(实心) / glow(发光)
+    barStyle: 'glass',  // 音柱材质：glass(玻璃) / solid(实心) / glow(发光) / acrylic(亚克力)
+    barBlur: 6,         // 材质模糊半径 px（亚克力/磨砂）
+    barAlpha: 1.0,      // 材质整体透明度倍率（0.2~2）
+    barGlow: 1.0,       // 高光/发光强度倍率（0~2）
+    barRound: 2,        // 柱体圆角 px
     hint: '点击画面有光环 · 点「系统音频」检测正在播放的音乐',
   };
 
@@ -200,6 +204,27 @@
     const x0 = (W - totalW) / 2;
     const hue = state.hue;
     const style = P.barStyle || 'glass';
+    // 材质可调参数（亚克力/玻璃/实心/发光 都吃这几个值）
+    const am = Math.max(0, Math.min(2, P.barAlpha == null ? 1 : Number(P.barAlpha)));
+    const gm = Math.max(0, Math.min(2, P.barGlow == null ? 1 : Number(P.barGlow)));
+    const blurPx = Math.max(0, Math.min(40, P.barBlur == null ? 0 : Number(P.barBlur)));
+    const roundPx = Math.max(0, Math.min(20, P.barRound == null ? 0 : Number(P.barRound)));
+    const canFilter = typeof rctx.filter === 'string';
+    function roundBar(x, y, w, h, r) {
+      const rr = Math.min(r, w / 2, h / 2);
+      rctx.beginPath();
+      if (rr <= 0) { rctx.rect(x, y, w, h); return; }
+      rctx.moveTo(x + rr, y);
+      rctx.lineTo(x + w - rr, y);
+      rctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+      rctx.lineTo(x + w, y + h - rr);
+      rctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+      rctx.lineTo(x + rr, y + h);
+      rctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+      rctx.lineTo(x, y + rr);
+      rctx.quadraticCurveTo(x, y, x + rr, y);
+      rctx.closePath();
+    }
     rctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < bars; i++) {
       const idx = Math.floor(Math.pow(i / bars, 1.5) * freqData.length * 0.6);
@@ -212,38 +237,66 @@
       if (style === 'glow') {
         // 发光材质：柔光渐晕，无实体
         const g = rctx.createLinearGradient(0, top, 0, baseY);
-        g.addColorStop(0, 'hsla(' + hue + ', 90%, 80%, ' + (0.5 + v * 0.5) + ')');
+        g.addColorStop(0, 'hsla(' + hue + ', 90%, 80%, ' + Math.min(1, (0.5 + v * 0.5) * am * gm) + ')');
         g.addColorStop(1, 'hsla(' + hue + ', 90%, 50%, 0)');
         rctx.fillStyle = g;
+        if (blurPx > 0 && canFilter) rctx.filter = 'blur(' + blurPx + 'px)';
         rctx.fillRect(x - w * 0.2, top, w * 1.4, bh);
+        if (blurPx > 0 && canFilter) rctx.filter = 'none';
       } else if (style === 'solid') {
         // 实心材质：立体柱体
         const g = rctx.createLinearGradient(x, 0, x + w, 0);
-        g.addColorStop(0, 'hsla(' + hue + ', 90%, 28%, 0.9)');
-        g.addColorStop(0.35, 'hsla(' + hue + ', 90%, 62%, ' + (0.5 + v * 0.45) + ')');
-        g.addColorStop(0.6, 'hsla(' + hue + ', 90%, 84%, ' + (0.55 + v * 0.45) + ')');
-        g.addColorStop(1, 'hsla(' + hue + ', 90%, 24%, 0.9)');
+        g.addColorStop(0, 'hsla(' + hue + ', 90%, 28%, ' + Math.min(1, 0.9 * am) + ')');
+        g.addColorStop(0.35, 'hsla(' + hue + ', 90%, 62%, ' + Math.min(1, (0.5 + v * 0.45) * am) + ')');
+        g.addColorStop(0.6, 'hsla(' + hue + ', 90%, 84%, ' + Math.min(1, (0.55 + v * 0.45) * am) + ')');
+        g.addColorStop(1, 'hsla(' + hue + ', 90%, 24%, ' + Math.min(1, 0.9 * am) + ')');
         rctx.fillStyle = g;
-        rctx.fillRect(x, top, w, bh);
-        rctx.fillStyle = 'hsla(' + ((hue + 20) % 360) + ', 95%, 92%, ' + (0.6 + v * 0.4) + ')';
+        if (blurPx > 0 && canFilter) rctx.filter = 'blur(' + blurPx + 'px)';
+        if (roundPx > 0) { roundBar(x, top, w, bh, roundPx); rctx.fill(); } else { rctx.fillRect(x, top, w, bh); }
+        if (blurPx > 0 && canFilter) rctx.filter = 'none';
+        rctx.fillStyle = 'hsla(' + ((hue + 20) % 360) + ', 95%, 92%, ' + Math.min(1, (0.6 + v * 0.4) * am * gm) + ')';
         rctx.fillRect(x, top - 2.5, w, 3);
+      } else if (style === 'acrylic') {
+        // 亚克力（磨砂玻璃）：模糊柱体 + 顶部亮边 + 内部高光 + 冷色描边
+        const g = rctx.createLinearGradient(0, top, 0, baseY);
+        g.addColorStop(0, 'hsla(' + hue + ', 55%, 95%, ' + Math.min(1, (0.26 + v * 0.22) * am) + ')');
+        g.addColorStop(0.55, 'hsla(' + hue + ', 40%, 82%, ' + Math.min(1, (0.14 + v * 0.16) * am) + ')');
+        g.addColorStop(1, 'hsla(' + hue + ', 35%, 70%, ' + Math.min(1, (0.08 + v * 0.1) * am) + ')');
+        rctx.fillStyle = g;
+        if (blurPx > 0 && canFilter) rctx.filter = 'blur(' + blurPx + 'px)';
+        roundBar(x, top, w, bh, roundPx + 2);
+        rctx.fill();
+        if (blurPx > 0 && canFilter) rctx.filter = 'none';
+        // 磨砂描边（亚克力的硬边）
+        rctx.strokeStyle = 'hsla(' + hue + ', 60%, 97%, ' + Math.min(1, (0.22 + v * 0.3) * am) + ')';
+        rctx.lineWidth = 1;
+        roundBar(x + 0.5, top + 0.5, w - 1, Math.max(1, bh - 1), roundPx + 2);
+        rctx.stroke();
+        // 顶部亮线 + 内部镜面反光
+        rctx.fillStyle = 'hsla(' + hue + ', 75%, 99%, ' + Math.min(1, (0.45 + v * 0.5) * am * gm) + ')';
+        rctx.fillRect(x + 1, top + 1, w - 2, Math.max(1, 1.6));
+        rctx.fillStyle = 'hsla(' + hue + ', 45%, 100%, ' + Math.min(1, 0.1 * am * gm) + ')';
+        rctx.fillRect(x + w * 0.18, top + 2, Math.max(1, w * 0.16), Math.max(0, bh - 3));
       } else {
         // 玻璃材质（默认）：半透明柱体 + 高光 + 反光 + 边框
         const g = rctx.createLinearGradient(x, 0, x + w, 0);
-        g.addColorStop(0, 'hsla(' + hue + ', 85%, 55%, ' + (0.28 + v * 0.3) + ')');
-        g.addColorStop(0.5, 'hsla(' + hue + ', 85%, 78%, ' + (0.34 + v * 0.35) + ')');
-        g.addColorStop(1, 'hsla(' + hue + ', 85%, 45%, ' + (0.26 + v * 0.3) + ')');
+        g.addColorStop(0, 'hsla(' + hue + ', 85%, 55%, ' + Math.min(1, (0.28 + v * 0.3) * am) + ')');
+        g.addColorStop(0.5, 'hsla(' + hue + ', 85%, 78%, ' + Math.min(1, (0.34 + v * 0.35) * am) + ')');
+        g.addColorStop(1, 'hsla(' + hue + ', 85%, 45%, ' + Math.min(1, (0.26 + v * 0.3) * am) + ')');
         rctx.fillStyle = g;
-        rctx.fillRect(x, top, w, bh);
+        if (blurPx > 0 && canFilter) rctx.filter = 'blur(' + blurPx + 'px)';
+        if (roundPx > 0) { roundBar(x, top, w, bh, roundPx); rctx.fill(); } else { rctx.fillRect(x, top, w, bh); }
+        if (blurPx > 0 && canFilter) rctx.filter = 'none';
         // 顶部高光（亮点）
-        rctx.fillStyle = 'hsla(' + ((hue + 25) % 360) + ', 90%, 94%, ' + (0.5 + v * 0.5) + ')';
+        rctx.fillStyle = 'hsla(' + ((hue + 25) % 360) + ', 90%, 94%, ' + Math.min(1, (0.5 + v * 0.5) * am * gm) + ')';
         rctx.fillRect(x, top - 1.5, w, 2.5);
         // 玻璃边框
-        rctx.strokeStyle = 'hsla(' + hue + ', 80%, 88%, ' + (0.2 + v * 0.25) + ')';
+        rctx.strokeStyle = 'hsla(' + hue + ', 80%, 88%, ' + Math.min(1, (0.2 + v * 0.25) * am) + ')';
         rctx.lineWidth = 1;
-        rctx.strokeRect(x + 0.5, top + 0.5, w - 1, bh - 1);
+        roundBar(x + 0.5, top + 0.5, w - 1, Math.max(1, bh - 1), roundPx);
+        rctx.stroke();
         // 底部反光
-        rctx.fillStyle = 'hsla(' + hue + ', 80%, 60%, ' + (0.14 + v * 0.16) + ')';
+        rctx.fillStyle = 'hsla(' + hue + ', 80%, 60%, ' + Math.min(1, (0.14 + v * 0.16) * am) + ')';
         rctx.fillRect(x, baseY - 2, w, 2);
       }
     }

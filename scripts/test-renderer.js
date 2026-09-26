@@ -72,6 +72,8 @@ let lastSearchSource = null;
 let lastSrcAdd = null;
 let lastLxImport = false;
 let lastPlImport = null;
+let lastAltQuery = null;
+const failSources = new Set();
 const tabEls = [
   { dataset: { tab: 'search' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
   { dataset: { tab: 'list' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
@@ -132,7 +134,16 @@ const sandbox = {
         if (!kw) return { ok: false, error: '空' };
         return { ok: true, data: [{ id: 1, name: '晴天', artist: '周杰伦', album: '叶惠美', cover: 'http://c/p.jpg', durationMs: 269000, source: 'netease' }] };
       },
-      getPlayUrl: async (obj) => ({ ok: true, url: 'https://music.163.com/song/media/outer/url?id=' + (obj && obj.id !== undefined ? obj.id : obj) + '.mp3' }),
+      getPlayUrl: async (obj) => {
+        const src = (obj && obj.source) || 'netease';
+        if (failSources.has(src)) return { ok: false, error: '版权限制' };
+        const host = src === 'qq' ? 'http://dl.stream.qqmusic.qq.com/' : 'https://music.163.com/song/media/outer/url?id=';
+        return { ok: true, url: host + (obj && obj.id !== undefined ? obj.id : obj) + '.mp3' };
+      },
+      altSources: async (p) => {
+        lastAltQuery = p;
+        return { ok: true, alternatives: [{ source: 'qq', id: 'MID9', name: '晴天', artist: '周杰伦', lxSource: 'tx', songmid: 'MID9' }] };
+      },
       getLyric: async () => ({ ok: true, data: { lrc: '[00:01.00]第一句\n[00:10.00]第二句\n', tlyric: '[00:10.00]Second line' } }),
       openLocalFiles: async () => [],
       getLxStatus: async () => ({ ok: true, loaded: true, name: 'flower', sourceKeys: ['kw', 'mg'], searchSources: [] }),
@@ -424,6 +435,35 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     } else {
       check('拖拽排序（列表不足 2 首，跳过）', true);
     }
+
+    // 24) 点封面 → 播放详情页（歌词居中）
+    doc.getElementById('cover-wrap').onclick();
+    check('点封面打开播放详情页', !doc.getElementById('now-playing').classList.contains('hidden'));
+    check('详情页显示歌名', !!ids['np-title'].textContent && ids['np-title'].textContent !== '未在播放', ids['np-title'].textContent);
+    check('详情页歌词已渲染', ids['np-lyric']._children.length >= 1, String(ids['np-lyric']._children.length));
+    const npLine = ids['np-lyric']._children[0];
+    if (npLine && npLine.onclick) {
+      audioEl.currentTime = 88;
+      npLine.onclick();
+      check('详情页歌词点击可跳转', audioEl.currentTime === 1, String(audioEl.currentTime));
+    } else {
+      check('详情页歌词点击可跳转（无歌词行，跳过）', true);
+    }
+    doc._emit('keydown', { key: 'Escape', preventDefault() {} });
+    check('Esc 关闭播放详情页', doc.getElementById('now-playing').classList.contains('hidden'));
+
+    // 25) 播放失败自动换源（网易失败 → QQ 取链成功）
+    failSources.add('netease');
+    ids['search-input'].value = '周杰伦';
+    await ids['search-btn'].onclick();
+    await flush();
+    ids['results']._children[0].onclick();
+    await flush(); await flush(); await flush();
+    check('换源请求带上了歌名与歌手', !!lastAltQuery && /晴天/.test(lastAltQuery.name || '') && /周杰伦/.test(lastAltQuery.artist || ''), JSON.stringify(lastAltQuery));
+    check('已换到 QQ 源播放', /stream[.]qqmusic[.]qq[.]com/.test(String(audioEl.src)), String(audioEl.src));
+    check('换源结果提示', /已换源播放/.test(ids['status'].textContent), ids['status'].textContent);
+    check('换源结果写回列表来源', /QQ/.test(ids['playlist']._children.map((r) => r.innerHTML).join('')), String(ids['playlist']._children.length) + ' 行');
+    failSources.clear();
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
     process.exit(fail ? 1 : 0);
