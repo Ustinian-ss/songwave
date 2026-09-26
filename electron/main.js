@@ -521,7 +521,33 @@ ipcMain.handle('songwave-search', async (_e, keywords, sourceKey) => {
 });
 
 ipcMain.handle('songwave-play-url', async (_e, payload) => {
+  const r = await resolvePlayUrl(payload);
+  // 取链成功就写入「已解析地址缓存」：下次直接命中，不怕音源后端再挂
+  if (r && r.ok && r.url && payload && payload.id !== undefined && payload.id !== null && payload.source !== 'search') {
+    try {
+      getUrlCache().set(payload.source || 'netease', payload.id, r.url, { quality: payload.quality, from: r.via, name: payload.name });
+    } catch (e) { /* 缓存失败不影响播放 */ }
+  }
+  return r;
+});
+
+async function resolvePlayUrl(payload) {
   try {
+    // ⓪ 已解析地址缓存（其它播放器就是这么在音源后端失效后继续播的）：
+    //    命中先验证是否真音频，能用就直接播，省掉一次取链、也不受源脚本后端影响
+    if (payload && (payload.id !== undefined && payload.id !== null) && payload.source !== 'search') {
+      const hit = getUrlCache().get(payload.source || 'netease', payload.id, payload.quality);
+      if (hit && hit.url) {
+        const probe = await probeAudio(hit.url, { timeout: 3500 });
+        if (probe.ok) {
+          const warn = isPreviewClip(probe.totalLength, payload.durationMs)
+            ? ('缓存地址仅 ' + Math.max(1, Math.round(probe.totalLength / 16000)) + ' 秒试听片段') : '';
+          return { ok: true, url: hit.url, via: 'cache' + (hit.from ? ('(' + hit.from + ')') : ''), warn: warn };
+        }
+        getUrlCache().remove(payload.source || 'netease', payload.id, payload.quality);
+        logLine('[songwave] 缓存地址失效，重新取链:', String(hit.url).slice(0, 60), probe.reason);
+      }
+    }
     // 文本歌单导入的条目：先按「歌名 歌手」搜索，再取链
     if (payload && payload.source === 'search') {
       const kw = [payload.name, payload.artist].filter(Boolean).join(' ').trim();
@@ -573,7 +599,60 @@ ipcMain.handle('songwave-play-url', async (_e, payload) => {
     logLine('[songwave] play-url 失败:', detail);
     return { ok: false, error: detail };
   }
+}
+
+/** 已解析播放地址缓存（懒加载：userData 目录在 app ready 后才稳定） */
+let urlCacheInstance = null;
+function getUrlCache() {
+  if (!urlCacheInstance) {
+    const { createUrlCache } = require('../src/url-cache');
+    let dir;
+    try { dir = app.getPath('userData'); } catch (e) { dir = require('os').tmpdir(); }
+    urlCacheInstance = createUrlCache(path.join(dir, 'url-cache.json'));
+  }
+  return urlCacheInstance;
+}
+
+/**
+ * 从其它播放器导入「已解析播放地址」缓存。
+ * 这是那些播放器在音源后端失效后仍能继续播放的原因（实测它们的缓存地址至今仍 200）。
+ * 读取用自带的极简 SQLite 只读实现，不引入任何第三方依赖。
+ */
+ipcMain.handle('songwave-cache-import-others', async () => {
+  const fs = require('fs');
+  const { readTable } = require('../src/sqlite-lite');
+  const { parsePlayUrlTable } = require('../src/url-cache');
+  const cands = [];
+  const lxData = path.join(process.env.APPDATA || '', 'lx-music-desktop', 'LxDatas');
+  if (fs.existsSync(path.join(lxData, 'lx.data.db'))) cands.push({ name: 'LX Music', file: path.join(lxData, 'lx.data.db') });
+  const pairs = [];
+  const detail = [];
+  for (const c of cands) {
+    let rows = [];
+    let how = 'sqlite';
+    try { rows = readTable(c.file, 'music_url'); } catch (e) { rows = []; }
+    if (!rows.length) {
+      // 退化方案：直接扫描文件字节（少数环境读不了页结构）
+      how = 'scan';
+      try { rows = parsePlayUrlTable(fs.readFileSync(c.file)).map((x) => ({ id: x.key.replace(/:/g, '_'), url: x.url })); } catch (e) { /* ignore */ }
+    }
+    let n = 0;
+    rows.forEach((row) => {
+      const id = String(row.id || '');
+      const url = String(row.url || '');
+      const m = /^([a-z]{2})_(\d+)(?:_([0-9a-z]+))?$/.exec(id);
+      if (!m || !/^https?:\/\//.test(url)) return;
+      pairs.push({ key: m[1] + ':' + m[2] + (m[3] ? (':' + m[3]) : ''), url: url, from: 'lx' });
+      n++;
+    });
+    detail.push(c.name + ' ' + n + ' 条（' + how + '）');
+    logLine('[songwave] 导入 ' + c.name + ' 播放地址缓存:', n, '条');
+  }
+  const added = getUrlCache().importPairs(pairs);
+  return { ok: true, added: added, parsed: pairs.length, detail: detail, stats: getUrlCache().stats() };
 });
+
+ipcMain.handle('songwave-cache-stats', () => ({ ok: true, stats: getUrlCache().stats() }));
 
 // 音源体检：用一首真实的酷我歌逐个测试已装脚本，直接告诉用户"哪个脚本真的能用"
 ipcMain.handle('songwave-src-probe', async (_e, payload) => {

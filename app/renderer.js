@@ -1705,6 +1705,32 @@
     if (dirBtn) dirBtn.onclick = importFromDir;
     const probeBtn = $('src-probe');
     if (probeBtn) probeBtn.onclick = probeSources;
+    const impBtn = $('cache-import');
+    if (impBtn) impBtn.onclick = importUrlCache;
+  }
+
+  /**
+   * 导入其它播放器已解析好的播放地址缓存。
+   * 音源脚本的后端会挂（实测 flower 后端 404），但**已经解析出来的 CDN 直链往往还能长期播放** ——
+   * 其它播放器正是靠这张表在源失效后继续播；这里把它们读过来，这首歌立刻就能完整播放。
+   */
+  async function importUrlCache() {
+    if (!window.songwave.cacheImportOthers) return;
+    const hint = $('src-probe-hint');
+    if (hint) hint.textContent = '正在读取其它播放器的已解析地址…';
+    setStatus('正在导入已解析播放地址…', 4000);
+    let r = null;
+    try { r = await window.songwave.cacheImportOthers(); }
+    catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (!r || !r.ok) { if (hint) hint.textContent = '导入失败：' + ((r && r.error) || '未知错误'); return; }
+    const st = r.stats || {};
+    const bySrc = st.bySource || {};
+    const txt = '新增 ' + r.added + ' 条（解析到 ' + r.parsed + ' 条）' +
+      '　缓存共 ' + (st.total || 0) + ' 条：' +
+      Object.keys(bySrc).map((k) => (SOURCE_LABELS[k] || k) + ' ' + bySrc[k]).join('、') +
+      (r.detail && r.detail.length ? ('　[' + r.detail.join('；') + ']') : '');
+    if (hint) hint.textContent = txt;
+    setStatus('已导入 ' + r.added + ' 条播放地址，再播放同一首歌即可命中缓存', 9000);
   }
 
   /**
