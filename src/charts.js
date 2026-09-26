@@ -85,6 +85,23 @@ function mapNeteaseRecommend(j) {
   })).filter((x) => x.id);
 }
 
+// 平台可用性说明（2026-09 实测）：
+//   网易云 / QQ / 酷狗 的榜单接口可直接访问；
+//   酷我 需要页面动态生成的 csrf token、咪咕 接口已改版（返回重定向/HTML），
+//   因此这两家暂不提供榜单（搜索同理，失败会自动回退网易云）。
+const SUPPORTED = ['netease', 'qq', 'kugou'];
+const UNSUPPORTED = [
+  { key: 'kuwo', label: '酷我', reason: '接口需页面动态 token' },
+  { key: 'migu', label: '咪咕', reason: '接口已改版（需 App 签名）' },
+];
+
+function platformInfo() {
+  return {
+    supported: SUPPORTED.map((k) => ({ key: k, label: ({ netease: '网易云', qq: 'QQ音乐', kugou: '酷狗' })[k] || k })),
+    unsupported: UNSUPPORTED.slice(),
+  };
+}
+
 function createCharts(opts = {}) {
   const fetchImpl = opts.fetchImpl || ((...a) => fetch(...a));
 
@@ -147,4 +164,4 @@ function createCharts(opts = {}) {
   return { list, fetchChart, recommend, fetchPlaylist, platforms: Object.keys(CHARTS) };
 }
 
-module.exports = { createCharts, CHARTS, mapQqTopList, mapKugouRank, mapNeteaseRecommend };
+module.exports = { createCharts, CHARTS, mapQqTopList, mapKugouRank, mapNeteaseRecommend, platformInfo, SUPPORTED, UNSUPPORTED };

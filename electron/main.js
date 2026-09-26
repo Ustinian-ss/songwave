@@ -886,7 +886,16 @@ const charts = require('../src/charts').createCharts();
 ipcMain.handle('songwave-charts', async (_e, payload) => {
   const p = payload || {};
   try {
-    if (p.action === 'list') return { ok: true, lists: ['netease', 'qq', 'kugou'].reduce((acc, k) => { acc[k] = charts.list(k); return acc; }, {}) };
+    if (p.action === 'platforms') {
+      const info = require('../src/charts').platformInfo();
+      return { ok: true, platforms: info.supported, unsupported: info.unsupported };
+    }
+    if (p.action === 'list') {
+      const info = require('../src/charts').platformInfo();
+      const lists = {};
+      info.supported.forEach((pl) => { lists[pl.key] = charts.list(pl.key); });
+      return { ok: true, lists, unsupported: info.unsupported };
+    }
     if (p.action === 'recommend') return { ok: true, items: await charts.recommend(p.limit || 12) };
     if (p.action === 'chart' || p.action === 'playlist') {
       const r = await charts.fetchChart(p.platform || 'netease', p.id, p.limit || 50);

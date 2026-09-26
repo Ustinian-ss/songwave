@@ -1089,7 +1089,12 @@
     [['p-colora', 'colorA'], ['p-colorb', 'colorB']].forEach(([id, key]) => {
       const el = $(id);
       if (!el) return;
-      const upd = () => { engine.setParam(key, el.value); saveState(); };
+      const upd = () => {
+        engine.setParam(key, el.value);
+        const vv = $(key === 'colorA' ? 'v-colora' : 'v-colorb');
+        if (vv) vv.textContent = el.value;
+        saveState();
+      };
       el.addEventListener('input', upd);
       el.addEventListener('change', upd);
     });
@@ -2157,6 +2162,16 @@
     });
   }
 
+  /** 平台可用性提示：哪些平台有榜单、哪些没有（含原因，避免"为什么只有三个"的疑问） */
+  function renderPlatformHint(unsupported) {
+    const el = $('chart-plat-hint');
+    if (!el) return;
+    const list = unsupported || [];
+    if (!list.length) { el.textContent = ''; return; }
+    const have = Array.from(document.querySelectorAll('#chart-platforms .chip')).map((b) => b.textContent).join(' / ');
+    el.textContent = '榜单接口可用：' + have + '；' + list.map((p) => p.label + '（' + p.reason + '）').join('、') + ' 暂不可用';
+  }
+
   async function loadCharts() {
     if (!window.songwave.charts) return;
     const box = $('chart-list');
@@ -2164,6 +2179,7 @@
     const r = await window.songwave.charts({ action: 'list' });
     if (!r || !r.ok) { if (box) box.innerHTML = '<div class="we-empty">榜单获取失败：' + esc((r && r.error) || '') + '</div>'; return; }
     renderChartList(r.lists);
+    renderPlatformHint(r.unsupported);
   }
 
   function renderSongRows(containerId, items, label) {

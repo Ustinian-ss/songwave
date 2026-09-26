@@ -762,3 +762,65 @@ body.bg-blend .songwave-rings { opacity: var(--viz-opacity, .85); }
 .pl-head .ph-name { font-size: 13px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-head .ph-sub { font-size: 11px; color: #8fa4c4; margin-top: 2px; }
 .pl-head .btn { flex: none; height: 26px; font-size: 11px; }
+
+
+/* ===== 色彩混搭：取色器（此前缺样式导致几乎看不见） ===== */
+.param.color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.param.color-row label { flex: none; font-size: 12px; color: rgba(255, 255, 255, .72); }
+.param.color-row input[type="color"] {
+  width: 46px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.param.color-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+.param.color-row input[type="color"]::-webkit-color-swatch { border: none; border-radius: 6px; }
+.param.color-row .color-val {
+  font-size: 11px;
+  color: #8fa4c4;
+  font-family: Consolas, monospace;
+}
+/* 混搭预设小色卡：点一下就换一组配色 */
+.mix-swatches { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.mix-swatch {
+  width: 26px; height: 18px; border-radius: 5px;
+  border: 1px solid rgba(255,255,255,.18); cursor: pointer;
+}
+
+/* ===== 左侧功能栏：紧凑 + 可滚动（按钮变多后不再被裁切） ===== */
+#rail {
+  padding: 6px 0;
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+#rail::-webkit-scrollbar { width: 0; }
+.rail-btn {
+  width: 34px;
+  height: 34px;
+  font-size: 15px;
+  flex: 0 0 auto;
+}
+/* 窗口不高时进一步压缩，保证 9 个按钮都能显示 */
+@media (max-height: 700px) {
+  #rail { padding: 4px 0; gap: 2px; }
+  .rail-btn { width: 30px; height: 30px; font-size: 13px; border-radius: 8px; }
+}
+@media (max-height: 600px) {
+  #rail { top: 44px; bottom: 68px; }
+  .rail-btn { width: 26px; height: 26px; font-size: 12px; }
+}
+/* 平台不可用提示 */
+.chart-hint { font-size: 11px; color: #7f8ea8; line-height: 1.5; padding: 2px 2px 4px; }
+.chip.disabled { opacity: .45; cursor: not-allowed; }

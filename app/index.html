@@ -91,6 +91,7 @@
         <button class="btn chip" data-plat="qq">QQ</button>
         <button class="btn chip" data-plat="kugou">酷狗</button>
       </div>
+      <div class="chart-hint" id="chart-plat-hint"></div>
       <div class="list-tools">
         <button class="btn" id="btn-recommend">✨ 推荐歌单</button>
         <button class="btn" id="btn-charts-refresh">↻ 榜单</button>
@@ -341,9 +342,9 @@
         <div class="panel-title">色彩混搭（自选两色渐变）</div>
         <div class="param color-row">
           <label>主色</label>
-          <input type="color" id="p-colora" value="#67dce7">
+          <input type="color" id="p-colora" value="#67dce7"><span class="color-val" id="v-colora">#67dce7</span>
           <label>副色</label>
-          <input type="color" id="p-colorb" value="#ff6bae">
+          <input type="color" id="p-colorb" value="#ff6bae"><span class="color-val" id="v-colorb">#ff6bae</span>
         </div>
         <div class="param">
           <label>混搭强度 <span id="v-colormix">0%</span></label>
