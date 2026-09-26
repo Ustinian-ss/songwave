@@ -1,7 +1,7 @@
 {
   "name": "songwave",
   "productName": "声浪 SongWave",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "声浪 SongWave · 音画一体的桌面音乐播放器：多平台音源 + 扩展音源脚本 + 排行榜/推荐 + Wallpaper Engine 壁纸背景 + SongLife 可视化 + 10段EQ + 独立桌面歌词浮窗 + 托盘 + 下载增强",
   "main": "electron/main.js",
   "author": "SongWave",
@@ -19,7 +19,7 @@
     "test:script": "node scripts/test-script-runtime.js",
     "test:download": "node scripts/test-download.js",
     "build:dir": "electron-builder --win --dir",
-    "test:all": "node scripts/test-renderer.js && node scripts/test-extras.js && node scripts/test-match.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-platforms.js && node scripts/test-wallpaper-engine.js && node scripts/test-source-manager.js && node scripts/test-import-sources.js && node scripts/test-playlist-import.js && node scripts/test-script-runtime.js && node scripts/test-audio-effects.js && node scripts/test-preload-api.js && node scripts/test-source-resilience.js && node scripts/test-charts-api.js && node scripts/test-viz-fallback.js",
+    "test:all": "node scripts/test-renderer.js && node scripts/test-extras.js && node scripts/test-match.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-platforms.js && node scripts/test-wallpaper-engine.js && node scripts/test-source-manager.js && node scripts/test-import-sources.js && node scripts/test-playlist-import.js && node scripts/test-script-runtime.js && node scripts/test-audio-effects.js && node scripts/test-preload-api.js && node scripts/test-source-resilience.js && node scripts/test-charts-api.js && node scripts/test-viz-fallback.js && node scripts/test-audio-probe.js",
     "test:wallpaper": "node scripts/test-wallpaper.js",
     "test:platforms": "node scripts/test-platforms.js",
     "test:we": "node scripts/test-wallpaper-engine.js",
@@ -32,7 +32,8 @@
     "test:preload": "node scripts/test-preload-api.js",
     "test:resilience": "node scripts/test-source-resilience.js",
     "test:chartsapi": "node scripts/test-charts-api.js",
-    "test:viz": "node scripts/test-viz-fallback.js"
+    "test:viz": "node scripts/test-viz-fallback.js",
+    "test:probe": "node scripts/test-audio-probe.js"
   },
   "devDependencies": {
     "electron": "^32.0.0",

@@ -354,10 +354,15 @@ ipcMain.handle('songwave-src-pick', async () => {
   }
 });
 
-// 平台音源（QQ/酷狗/酷我/咪咕）：搜索走平台接口，取链交给 扩展音源脚本
+// 平台音源（QQ/酷狗/酷我/咪咕）：搜索走平台接口；取链优先扩展音源脚本，
+// 脚本不可用时用「内置原生取链」（目前酷我支持：anti.s convert_url）
 const platforms = require('../src/sources/platforms');
 const PLATFORM_MAP = {};
 platforms.PLATFORMS.forEach((p) => { PLATFORM_MAP[p.key] = p; });
+/** extKey（kw/tx/kg/mg）→ 支持原生取链的平台模块 */
+const NATIVE_PLAY_MAP = {};
+platforms.PLATFORMS.forEach((p) => { if (typeof p.getPlayUrl === 'function') NATIVE_PLAY_MAP[p.extKey] = p; });
+const { probeAudio, isPreviewClip, errText } = require('../src/audio-probe');
 
 ipcMain.handle('songwave-sources', () => ({
   ok: true,
@@ -469,22 +474,58 @@ ipcMain.handle('songwave-play-url', async (_e, payload) => {
       const url = await netease.getPlayUrl(Number(first.id));
       return { ok: true, url, via: 'search→netease', resolved: first };
     }
-    // 带 extKey 的条目（QQ/酷狗/酷我/咪咕）统一走 扩展音源脚本取链
+    // 带 extKey 的条目（QQ/酷狗/酷我/咪咕）：
+    //   ① 优先用 扩展音源脚本 取链（用户导入的音源通常能给更高音质）
+    //   ② 脚本缺失/请求失败时，退回「内置原生取链」（目前酷我可用），
+    //      并把真实失败原因写进日志（含 fetch 的 err.cause），不再是静默没声
     if (payload && payload.extKey) {
+      const attempts = [];
       const src = await findSourceFor(payload.extKey, 'musicUrl');
-      if (!src) {
+      if (src) {
+        try {
+          const url = await src.getPlayUrl(payload.extKey, payload, payload.quality);
+          if (url) return { ok: true, url: url, via: 'ext:' + payload.extKey };
+          attempts.push('扩展音源没返回地址');
+        } catch (e) {
+          const detail = errText(e);
+          attempts.push('扩展音源：' + detail);
+          logLine('[songwave] 扩展音源取链失败(' + payload.extKey + '):', detail);
+        }
+      } else {
         const have = extState.sourceKeys.length ? ('已装入的音源支持：' + extState.sourceKeys.join(', ')) : '尚未导入可用音源';
-        return { ok: false, error: '没有能取链 ' + payload.extKey + ' 的音源脚本（请在「音源管理」里粘贴音源链接）。' + have };
+        attempts.push('没有能取链 ' + payload.extKey + ' 的音源脚本（' + have + '）');
       }
-      const url = await src.getPlayUrl(payload.extKey, payload, payload.quality);
-      return { ok: true, url, via: 'ext:' + payload.extKey };
+
+      const nativeMod = NATIVE_PLAY_MAP[payload.extKey];
+      if (nativeMod) {
+        try {
+          const url = await nativeMod.getPlayUrl(payload);
+          if (url) {
+            // 有些平台的播放接口只给试听片段（版权/会员限制），当场判定并如实告知
+            const probe = await probeAudio(url, { timeout: 4000 });
+            if (!probe.ok && !probe.unknown) throw new Error(probe.reason);
+            const warn = isPreviewClip(probe.totalLength, payload.durationMs)
+              ? (nativeMod.label + '仅提供试听片段（约 ' + Math.max(1, Math.round(probe.totalLength / 16000)) +
+                 ' 秒，受版权/会员限制）')
+              : '';
+            return { ok: true, url: url, via: 'native:' + nativeMod.key, warn: warn };
+          }
+          attempts.push(nativeMod.label + '没返回地址');
+        } catch (e) {
+          const detail = errText(e);
+          attempts.push(nativeMod.label + '：' + detail);
+          logLine('[songwave] 内置取链失败(' + payload.extKey + '):', detail);
+        }
+      }
+      return { ok: false, error: '取链失败 —— ' + attempts.join('；') };
     }
     const nid = Number(payload && payload.id !== undefined ? payload.id : payload);
     const url = await netease.getPlayUrl(nid);
     return { ok: true, url, via: 'netease' };
   } catch (err) {
-    logLine('[songwave] play-url 失败:', (err && err.stack) || err);
-    return { ok: false, error: String(err && err.message || err) };
+    const detail = errText(err);
+    logLine('[songwave] play-url 失败:', detail);
+    return { ok: false, error: detail };
   }
 });
 

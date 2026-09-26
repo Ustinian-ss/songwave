@@ -3,6 +3,8 @@
 // 部分 VIP / 版权受限歌曲会返回 404/空流，属预期行为。
 'use strict';
 
+const { probeAudio } = require('../audio-probe');
+
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
 async function httpJson(url, options = {}) {
@@ -46,13 +48,38 @@ async function search(keywords, limit = 20) {
 
 /**
  * 获取可播放直链（外链接口，返回 302 到真实 mp3）
+ *
+ * 注意：网易云**歌词接口有授权、播放接口不一定有**。无版权/VIP 歌曲这里会 302 到
+ * https://music.163.com/404（text/html），音频元素只会静默失败 —— 所以默认探测一次响应头，
+ * 拿不到音频就直接抛错，让上层走「自动换源」，而不是让用户对着歌词听空气。
  * @param {number|string} id
+ * @param {{validate?: boolean, timeout?: number}} [opts] validate=false 可跳过探测（离线测试用）
  * @returns {Promise<string>}
  */
-async function getPlayUrl(id) {
+const probeCache = new Map();   // id → { at, res }，10 分钟内复用，避免每次播放都多一次请求
+
+async function getPlayUrl(id, opts = {}) {
   const nid = Number(id);
   if (!Number.isFinite(nid) || nid <= 0) throw new Error('无效歌曲 id');
-  return 'https://music.163.com/song/media/outer/url?id=' + nid + '.mp3';
+  const url = 'https://music.163.com/song/media/outer/url?id=' + nid + '.mp3';
+  if (opts.validate === false) return url;
+
+  const cached = probeCache.get(nid);
+  if (cached && Date.now() - cached.at < 10 * 60 * 1000) {
+    if (!cached.res.ok && !cached.res.unknown) throw new Error(playUrlError(cached.res));
+    return url;
+  }
+  const res = await probeAudio(url, {
+    timeout: opts.timeout || 4000,
+    headers: { Referer: 'https://music.163.com/' },
+  });
+  probeCache.set(nid, { at: Date.now(), res });
+  if (!res.ok && !res.unknown) throw new Error(playUrlError(res));
+  return url;
+}
+
+function playUrlError(res) {
+  return '网易云没有该歌曲的播放版权（' + (res.reason || '未知原因') + '）';
 }
 
 /**

@@ -73,12 +73,10 @@
     const r = await window.songwave.search(kw, curSource);
     if (!r.ok) { setStatus('搜索失败：' + r.error, 7000); return; }
     pushSearchHistory(kw);
-    // 平台接口不可用时后端已自动回退网易云：同步音源选择并提示原因
+    // 平台接口不可用时后端会回退网易云：只提示原因，**不改**你选的音源（下次仍按你的选择重试）
     if (r.fallbackFrom) {
-      curSource = r.source || 'netease';
-      try { localStorage.setItem('songwave.source', curSource); } catch (e) { /* ignore */ }
-      document.querySelectorAll('#src-chips .chip').forEach((x) => x.classList.toggle('active', x.dataset.src === curSource));
-      setStatus(r.note || '已自动回退网易云', 8000);
+      const want = SOURCE_LABELS[r.fallbackFrom] || r.fallbackFrom;
+      setStatus((r.note || (want + ' 暂无结果')) + '（下面显示的是' + (SOURCE_LABELS[r.source] || r.source) + '的结果，音源选择未改动）', 9000);
     }
     renderResults(r.data || []);
     if (!r.fallbackFrom) setStatus(r.data && r.data.length ? `找到 ${r.data.length} 首` : '没有结果');
@@ -104,7 +102,7 @@
       row.className = 'track';
       const badge = item.source === 'ext'
         ? '<span class="t-src">' + esc(item.extKey || 'ext') + '</span>'
-        : '<span class="t-src">网易</span>';
+        : '<span class="t-src">' + esc(SOURCE_LABELS[item.source] || item.source || '') + '</span>';
       row.innerHTML =
         '<span class="t-name">' + esc(item.name) + '</span>' +
         '<span class="t-artist">' + esc(item.artist) + '</span>' +
@@ -313,10 +311,29 @@
   let autoSwitch = true;
   try { autoSwitch = localStorage.getItem('songwave.autoswitch') !== '0'; } catch (e) { /* ignore */ }
   const altTried = new Map();   // trackKey -> 已尝试过的平台集合
+  // 已经用「试听片段」播过的曲目（keyed by trackKey，跨对象替换也能记住）：
+  // 这类曲目播到十几秒被截断是正常的，不该再报"换源失败"。
+  const previewTracks = new Set();
+
+  const switching = new Map();   // trackKey -> 进行中的换源 Promise（同一首并发只跑一次）
 
   async function tryAutoSwitch(item) {
     if (!autoSwitch || !window.songwave.altSources || !item) return false;
     const key = trackKey(item);
+    // 已经给这首歌找到过「能出声的版本」（哪怕只是试听片段），不要再换一轮吓人
+    if (previewTracks.has(key)) return true;
+    // 并发去重：点播放和 audio 的 error 事件几乎同时触发，不合并就会跑两轮
+    // （第二轮在第一轮成功之前发起，12 秒后才回来报"换源失败"，把已成功的提示覆盖掉）
+    if (switching.has(key)) return switching.get(key);
+    const task = doAutoSwitch(item, key).catch(() => false).then((ok) => {
+      switching.delete(key);
+      return ok;
+    });
+    switching.set(key, task);
+    return task;
+  }
+
+  async function doAutoSwitch(item, key) {
     const tried = altTried.get(key) || new Set([item.source || 'local', 'local']);
     if (tried.size > 6) return false;
     setStatus('取链失败，正在换源…', 0);
@@ -336,6 +353,7 @@
       return false;
     }
     const failures = [];
+    let previewOnly = null;   // 只有试听片段的候选，留作最后的兜底
     for (const alt of r.alternatives) {
       tried.add(alt.source);
       altTried.set(key, tried);
@@ -358,6 +376,24 @@
         console.warn('[songwave] 换源尝试失败', sourceLabelOf(alt), reason);
         continue;
       }
+      // 只有试听片段（版权/会员限制）：先记下来，继续找完整版；实在没有再用它
+      if (pr.warn && !previewOnly) {
+        previewOnly = { alt: alt, pr: pr };
+        console.warn('[songwave] 该平台只有试听片段，继续找完整版：', sourceLabelOf(alt), pr.warn);
+        continue;
+      }
+      return await playAlt(alt, pr);
+    }
+    if (previewOnly) {
+      setStatus('其它平台只有试听片段，先用它播放…', 4000);
+      return await playAlt(previewOnly.alt, previewOnly.pr);
+    }
+    setStatus('换源失败：' + (failures.length ? failures.join('、') : '替代音源都不可用'), 9000);
+    console.warn('[songwave] 换源失败明细', failures);
+    return false;
+
+    /** 真正切到替代音源播放 */
+    async function playAlt(alt, pr) {
       // 记住换源结果：后续重播直接用新平台
       const merged = Object.assign({}, item, {
         source: alt.source,
@@ -378,12 +414,16 @@
       }
       audio.src = pr.url;
       try { await audio.play(); } catch (e) { /* ignore */ }
-      setStatus('已换源播放（' + sourceLabelOf(alt) + '）：' + (alt.name || ''), 5000);
+      // 标记：只有试听片段的曲目，播完/截断报错时别再说"换源失败"吓人
+      if (pr.warn) {
+        merged.previewClip = true;
+        previewTracks.add(trackKey(merged));
+        previewTracks.add(key);   // 原平台 key 也要记住（同一首可能被再次取链）
+      }
+      const extra = pr.warn ? ('　⚠ ' + pr.warn) : '';
+      setStatus('已换源播放（' + sourceLabelOf(alt) + '）：' + (alt.name || '') + extra, pr.warn ? 9000 : 5000);
       return true;
     }
-    setStatus('换源失败：' + (failures.length ? failures.join('、') : '替代音源都不可用'), 9000);
-    console.warn('[songwave] 换源失败明细', failures);
-    return false;
   }
 
   // ================= 播放模式 / 倍速 / 定时停止 =================
@@ -443,6 +483,10 @@
   /** 播完一首后按播放模式决定下一首 */
   function advanceOnEnded() {
     if (!playlist.length) return;
+    const finished = playlist[current];
+    const wasPreview = !!(finished && (finished.previewClip || previewTracks.has(trackKey(finished))));
+    if (finished) finished.previewClip = false;
+    if (finished) previewTracks.delete(trackKey(finished));
     if (playMode === 'single') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
     if (playMode === 'shuffle') {
       if (playlist.length === 1) { audio.currentTime = 0; audio.play().catch(() => {}); return; }
@@ -452,7 +496,7 @@
     }
     if (current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); return; }
     if (playMode === 'list') { current = 0; renderPlaylist(); playCurrent(); return; }
-    setStatus('播放列表已播完');
+    setStatus(wasPreview ? '试听片段播放结束（该平台受版权/会员限制），列表已播完' : '播放列表已播完');
   }
 
   function saveProgress() {
@@ -714,6 +758,13 @@
         source: item.source,
         id: item.id,
         extKey: item.extKey,
+        songmid: item.songmid,
+        hash: item.hash,
+        copyrightId: item.copyrightId,
+        name: item.name,
+        artist: item.artist,
+        album: item.album,
+        durationMs: item.durationMs,
         quality: item.quality,
       });
       if (!r.ok) {
@@ -723,6 +774,8 @@
         return;
       }
       src = r.url;
+      // 例如「酷我仅提供试听片段（约 11 秒）」：如实告知，别让人以为播放器坏了
+      if (r.warn) setStatus(r.warn, 9000);
     }
     audio.src = src;
     // 进度记忆：上次听到哪就从哪继续（开头/结尾附近不恢复）
@@ -764,6 +817,14 @@
   audio.addEventListener('error', () => {
     if (!audio.src) return;
     const cur = current >= 0 ? playlist[current] : null;
+    // 试听片段本来就只有十几秒，播到截断处报错属正常：如实说明，不要报"换源失败"
+    if (cur && (cur.previewClip || previewTracks.has(trackKey(cur)))) {
+      cur.previewClip = false;
+      previewTracks.delete(trackKey(cur));
+      setStatus('试听片段播放结束（该平台受版权/会员限制）', 7000);
+      if (current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); }
+      return;
+    }
     if (cur && !cur._altTried) {
       cur._altTried = true;   // 每首只自动换源一次，避免死循环
       setStatus('播放失败，尝试自动换源…', 0);
@@ -819,6 +880,8 @@
     const t = pendingSeek;
     pendingSeek = null;
     if (audio.duration && Number.isFinite(audio.duration)) {
+      // 别续播到"快到结尾"的位置：试听片段只有十几秒，续到 11s 会一开就结束（看着像坏了）
+      if (audio.duration - t < 3) { updateLyricActive(0); return; }
       audio.currentTime = Math.min(t, audio.duration);
       updateLyricActive(audio.currentTime);
     }

@@ -20,6 +20,30 @@ function msFromSeconds(s) {
   return n > 0 ? Math.round(n * 1000) : 0;
 }
 
+/** 老接口返回的文本里带 HTML 实体（&nbsp; / &amp; 等），要还原 */
+function decodeEntities(s) {
+  return String(s == null ? '' : s)
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 纯文本响应（如酷我 anti.s 直接返回一个播放地址） */
+async function getText(url, headers) {
+  const res = await fetch(url, {
+    headers: Object.assign({ 'User-Agent': UA }, headers || {}),
+    redirect: 'follow',
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return await res.text();
+}
+
 // —— QQ 音乐（扩展源: tx） ——
 const qq = {
   key: 'qq',
@@ -78,27 +102,56 @@ const kugou = {
 };
 
 // —— 酷我（扩展源: kw） ——
+// 搜索：www.kuwo.cn/api/www/* 现在要求 csrf token，无 token 一律回 "The request is illegal!"，
+//       所以走仍然可用的 www 老接口 search.kuwo.cn/r.s（rformat=json 返回标准 JSON 的 abslist）。
+// 取链：anti.s convert_url 直接返回一个 mp3 地址（无需 token）。
+//       注意会员/版权歌曲它只给**试听片段**（实测约 11 秒），由上层用 audio-probe 判定并提示。
+const KUWO_UA_QS = '&uid=794762570&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1&newver=1' +
+  '&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json&mobi=1&issubtitle=1';
+
 const kuwo = {
   key: 'kuwo',
   label: '酷我',
   extKey: 'kw',
   platform: 'kuwo',
   async search(keywords, limit = 20) {
-    const url = 'http://www.kuwo.cn/api/www/search/searchMusicBykeyWord?httpsStatus=1&pn=1&rn=' +
-      encodeURIComponent(limit) + '&key=' + encodeURIComponent(keywords);
-    const j = await getJson(url, { Referer: 'http://www.kuwo.cn/', csrf: '' });
-    const list = (((j || {}).data || {}).list) || [];
-    return list.map((it) => ({
-      id: String(it.rid || ''),
-      songmid: String(it.rid || ''),   // 酷我取链需要 rid，flower 读的是 songmid
-      name: it.name || '',
-      artist: it.artist || '',
-      album: it.album || '',
-      cover: it.pic || '',
-      durationMs: msFromSeconds(it.duration),
-      source: 'kuwo',
-      extKey: 'kw',
-    })).filter((x) => x.id);
+    const url = 'http://search.kuwo.cn/r.s?client=kt&all=' + encodeURIComponent(keywords) +
+      '&pn=0&rn=' + encodeURIComponent(limit) + KUWO_UA_QS;
+    const j = await getJson(url, { Referer: 'http://www.kuwo.cn/' });
+    const list = (j && j.abslist) || [];
+    return list.map((it) => {
+      const rid = String(it.MUSICRID || it.DC_TARGETID || '').replace(/^MUSIC_/, '');
+      const short = String(it.web_albumpic_short || '');
+      return {
+        id: rid,
+        songmid: rid,                       // 扩展音源脚本（flower/kw）读的是 songmid
+        rid: rid,
+        musicrid: 'MUSIC_' + rid,
+        name: decodeEntities(it.NAME || it.SONGNAME),
+        artist: decodeEntities(it.ARTIST || it.AARTIST),
+        album: decodeEntities(it.ALBUM),
+        cover: short ? ('https://img1.kuwo.cn/star/albumcover/' + short.replace(/^\//, '')) : '',
+        durationMs: msFromSeconds(it.DURATION),
+        source: 'kuwo',
+        extKey: 'kw',
+      };
+    }).filter((x) => x.id);
+  },
+  /**
+   * 内置原生取链（无需任何扩展音源脚本）
+   * @param {{songmid?:string,id?:string,rid?:string,musicrid?:string}} song
+   * @returns {Promise<string>} 播放地址
+   */
+  async getPlayUrl(song) {
+    const raw = String((song && (song.musicrid || song.songmid || song.rid || song.id)) || '');
+    const rid = raw.replace(/^MUSIC_/, '').trim();
+    if (!/^\d+$/.test(rid)) throw new Error('无效的酷我 rid：' + raw);
+    const api = 'http://antiserver.kuwo.cn/anti.s?type=convert_url&rid=MUSIC_' + rid + '&format=mp3&response=url';
+    const text = String(await getText(api, { Referer: 'http://www.kuwo.cn/' })).trim();
+    if (!/^https?:\/\//i.test(text)) {
+      throw new Error('酷我未返回播放地址：' + text.slice(0, 60));
+    }
+    return text;
   },
 };
 
