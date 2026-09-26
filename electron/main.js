@@ -428,7 +428,29 @@ ipcMain.handle('songwave-search', async (_e, keywords, sourceKey) => {
     }
     const mod = PLATFORM_MAP[key];
     if (!mod) return { ok: false, error: '未知音源：' + key };
-    const [list, extList] = await Promise.all([mod.search(kw), lxTask]);
+    // 平台接口经常变动/被限流：失败或 0 结果时自动回退内置网易云，并说明原因
+    let list = [];
+    let failReason = '';
+    try {
+      list = await mod.search(kw);
+    } catch (e) {
+      failReason = String(e && e.message || e);
+      logLine('[songwave] 平台搜索失败(' + key + '):', failReason);
+    }
+    if (!list.length) {
+      const [neteaseList, extList2] = await Promise.all([netease.search(kw), lxTask]);
+      if (neteaseList.length) {
+        return {
+          ok: true,
+          data: neteaseList.concat(extList2),
+          source: 'netease',
+          fallbackFrom: key,
+          note: (failReason ? ('该音源接口不可用（' + failReason.slice(0, 40) + '）') : '该音源没有结果') + '，已自动改用网易云',
+        };
+      }
+      if (failReason) return { ok: false, error: mod.label + ' 搜索失败：' + failReason };
+    }
+    const extList = await lxTask;
     return { ok: true, data: list.concat(extList), source: key };
   } catch (err) {
     logLine('[songwave] search 失败:', (err && err.stack) || err);

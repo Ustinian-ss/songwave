@@ -71,10 +71,17 @@
     if (!kw) return;
     setStatus('搜索中（' + (SOURCE_LABELS[curSource] || curSource) + '）…', 4000);
     const r = await window.songwave.search(kw, curSource);
-    if (!r.ok) { setStatus('搜索失败：' + r.error); return; }
+    if (!r.ok) { setStatus('搜索失败：' + r.error, 7000); return; }
     pushSearchHistory(kw);
+    // 平台接口不可用时后端已自动回退网易云：同步音源选择并提示原因
+    if (r.fallbackFrom) {
+      curSource = r.source || 'netease';
+      try { localStorage.setItem('songwave.source', curSource); } catch (e) { /* ignore */ }
+      document.querySelectorAll('#src-chips .chip').forEach((x) => x.classList.toggle('active', x.dataset.src === curSource));
+      setStatus(r.note || '已自动回退网易云', 8000);
+    }
     renderResults(r.data || []);
-    setStatus(r.data && r.data.length ? `找到 ${r.data.length} 首` : '没有结果');
+    if (!r.fallbackFrom) setStatus(r.data && r.data.length ? `找到 ${r.data.length} 首` : '没有结果');
   }
   $('search-btn').onclick = doSearch;
   $('search-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });

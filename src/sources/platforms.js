@@ -52,9 +52,15 @@ const kugou = {
   extKey: 'kg',
   platform: 'kugou',
   async search(keywords, limit = 20) {
-    const url = 'https://mobilecdn.kugou.com/api/v3/search/song?format=json&showtype=1&page=1&pagesize=' +
-      encodeURIComponent(limit) + '&keyword=' + encodeURIComponent(keywords);
-    const j = await getJson(url);
+    // 酷狗有多个 CDN 域名，逐个尝试（mobilecdn 在部分网络已不可达）
+    const qs = 'api/v3/search/song?format=json&showtype=1&page=1&pagesize=' + encodeURIComponent(limit) + '&keyword=' + encodeURIComponent(keywords);
+    const hosts = ['https://mobiles.kugou.com/', 'https://msearchcdn.kugou.com/', 'https://mobilecdn.kugou.com/'];
+    let j = null;
+    let lastErr = null;
+    for (const h of hosts) {
+      try { j = await getJson(h + qs); break; } catch (e) { lastErr = e; }
+    }
+    if (!j) throw lastErr || new Error('酷狗接口不可用');
     const list = (((j || {}).data || {}).info) || [];
     return list.map((it) => ({
       id: String(it.hash || it.audio_id || ''),
