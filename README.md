@@ -317,7 +317,15 @@ npm run build:dir          # 只解包不打包（dist\win-unpacked，便于快�
 
 - 产物在 `dist/`（已在 `.gitignore` 中，**不建议把 80MB 的安装包提交进仓库**）
 - 首次运行 Windows SmartScreen 可能提示「未知发布者」→ 点「更多信息 → 仍要运行」（安装包未做代码签名）
-- 想发布安装包：GitHub 仓库页 → **Releases → Draft a new release** → 把 `dist\SongWave-Setup-*.exe` 拖进附件区即可
+- 想发布安装包，两种方式：
+  - **网页**：仓库页 → **Releases → Draft a new release** → 把 `dist\SongWave-Setup-*.exe` 拖进附件区
+  - **命令行**（[GitHub CLI](https://cli.github.com/)，先 `gh auth login` 一次）：
+    ```bash
+    gh release create v1.0.0 dist/SongWave-Setup-1.0.0.exe \
+      --title "声浪 SongWave v1.0.0" \
+      --notes-file docs/release-notes-v1.0.0.md
+    ```
+    发行说明模板见 `docs/release-notes-v1.0.0.md`。
 - 打包时若卡在下载 NSIS / winCodeSign 二进制，用镜像：
   ```cmd
   set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
