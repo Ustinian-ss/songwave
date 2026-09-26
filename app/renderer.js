@@ -1703,6 +1703,33 @@
     if (lxBtn) lxBtn.onclick = importFromLx;
     const dirBtn = $('src-import-dir');
     if (dirBtn) dirBtn.onclick = importFromDir;
+    const probeBtn = $('src-probe');
+    if (probeBtn) probeBtn.onclick = probeSources;
+  }
+
+  /**
+   * 音源体检：逐个脚本真取一次酷我播放地址，直接看出哪个装好的音源真的能用。
+   * （同一平台可能装了新旧多个脚本，坏的那个会拖累播放 —— 这个按钮就是用来分辨的）
+   */
+  async function probeSources() {
+    if (!window.songwave.srcProbe) return;
+    const hint = $('src-probe-hint');
+    if (hint) hint.textContent = '体检中…（每个脚本都要真取一次链，约 10~30 秒）';
+    setStatus('音源体检中…', 4000);
+    let r = null;
+    try { r = await window.songwave.srcProbe({ platform: 'kw', song: { songmid: '239211505', id: '239211505', name: '野火', artist: '戾格', interval: 232 } }); }
+    catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (!r || !r.ok) { if (hint) hint.textContent = '体检失败：' + ((r && r.error) || '未知错误'); return; }
+    const label = (x) => (x && typeof x === 'object') ? (x.name + (x.artist ? (' - ' + x.artist) : '')) : String(x);
+    const lines = (r.results || []).map((x) => (x.ok ? '✅ ' : (x.skipped ? '➖ ' : '❌ ')) + x.name + '：' + (x.detail || '') + (x.ms ? ('（' + x.ms + 'ms）') : ''));
+    if (hint) {
+      hint.innerHTML = lines.length
+        ? lines.map((s) => '<div>' + esc(s) + '</div>').join('')
+        : '没有已启用的音源脚本';
+    }
+    const okCount = (r.results || []).filter((x) => x.ok).length;
+    setStatus('音源体检完成：' + okCount + '/' + (r.results || []).length + ' 个可用（详见音源管理面板）', 8000);
+    void label;
   }
 
   // ================= 音效（10 段 EQ + 混响） =================

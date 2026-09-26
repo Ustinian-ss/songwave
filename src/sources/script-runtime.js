@@ -22,6 +22,48 @@ const EVENT_NAMES = Object.freeze({
 });
 
 /**
+ * 调试用：记录脚本读取了对象的哪些属性（只记录，不改变行为）
+ */
+function spyReads(obj, label) {
+  if (process.env.SW_DEBUG_LX !== '1') return obj;
+  if (!obj || (typeof obj !== 'object' && typeof obj !== 'function')) {
+    console.log('   [' + label + '] 非对象: ' + JSON.stringify(obj));
+    return obj;
+  }
+  try {
+    return new Proxy(obj, {
+      get(t, k) {
+        const v = t[k];
+        if (typeof k === 'string' && k !== 'then' && k !== 'catch') {
+          console.log('   [' + label + '].' + k + ' → ' + (typeof v === 'function' ? 'function' : JSON.stringify(v).slice(0, 60)));
+        }
+        return v;
+      },
+    });
+  } catch (e) { return obj; }
+}
+function debugWrap(obj, prefix) {
+  if (process.env.SW_DEBUG_UTILS !== '1') return obj;
+  return new Proxy(obj, {
+    get(t, k) {
+      const v = t[k];
+      if (v === undefined) {
+        console.log('[utils] ⚠ 脚本访问了不存在的方法: ' + prefix + String(k));
+        return undefined;
+      }
+      if (typeof v === 'function') {
+        return function (...args) {
+          try { return v.apply(this, args); }
+          catch (e) { console.log('[utils] ⚠ ' + prefix + String(k) + ' 调用抛错: ' + ((e && e.message) || e)); throw e; }
+        };
+      }
+      if (v && typeof v === 'object') return debugWrap(v, prefix + String(k) + '.');
+      return v;
+    },
+  });
+}
+
+/**
  * 创建 lx 运行时上下文（lx = 社区音源脚本 ABI 名，保持兼容）
  * @param {object} options
  * @param {object} [options.requestImpl] 覆盖网络请求：{ fetch: async (url, opts) => Response 兼容对象 }
@@ -80,6 +122,12 @@ function createLxRuntime(options = {}) {
         body: parsed,
       };
       body = parsed;
+      // 实验开关：LX 官方运行时给脚本的是原始字符串（脚本自己 JSON.parse），
+      // 这里用环境变量对照验证（SW_RAW_BODY=1 传原始文本）
+      if (process.env.SW_RAW_BODY === '1') {
+        response.body = text;
+        body = text;
+      }
       if (!r.ok) err = new Error('HTTP ' + r.status);
     } catch (e) {
       err = e;
@@ -108,8 +156,18 @@ function createLxRuntime(options = {}) {
         o.body = body.toString();
         o.headers = { 'Content-Type': 'application/x-www-form-urlencoded', ...(o.headers || {}) };
       }
+      // 调试：SW_DEBUG_LX=1 时打印脚本从 resp/body 读了哪些字段（音源脚本是混淆的，只能这样看它要什么）
+      let cb = callback;
+      if (process.env.SW_DEBUG_LX === '1' && typeof callback === 'function') {
+        cb = (err, resp, body) => {
+          console.log('[lx] 回调 err=' + (err && err.message) + ' status=' + (resp && resp.statusCode) + ' bodyType=' + (typeof body));
+          spyReads(resp, 'resp');
+          spyReads(body, 'body');
+          return callback(err, resp, body);
+        };
+      }
       // 返回中止函数（LX 原实现返回取消函数；我们不支持真正中止，返回 no-op）
-      doRequest(url, o, callback);
+      doRequest(url, o, cb);
       return () => {};
     },
     send(name, data) {
@@ -132,7 +190,7 @@ function createLxRuntime(options = {}) {
       requestHandler = handler;
       return Promise.resolve();
     },
-    utils: {
+    utils: debugWrap({
       crypto: {
         aesEncrypt(data, algorithm, key, iv) {
           const cipher = crypto.createCipheriv(algorithm, key, iv);
@@ -157,9 +215,10 @@ function createLxRuntime(options = {}) {
           zlib.deflate(buf, (e, out) => (e ? reject(new Error(e.message)) : resolve(out)));
         }),
       },
-    },
+    }, 'utils.'),
     currentScriptInfo: { name: '', description: '', version: '', author: '', homepage: '', rawScript: '' },
-    version: '2.0.0',
+    // 宿主应用版本：部分音源脚本会据此选择接口版本（可用 SW_LX_VERSION 覆盖做对照实验）
+    version: process.env.SW_LX_VERSION || '2.0.0',
     env: 'desktop',
   };
 
@@ -196,6 +255,27 @@ function installProcessGuards() {
     console.log('[ext-source] 未处理的 Promise 拒绝（已忽略）:', (r && (r.stack || r.message)) || r);
   });
 }
+/**
+ * 从脚本头部注释里读元信息（@name/@version/@description/@author/@homepage）。
+ * 重要：部分音源脚本（例如 flower/野花）会拿 currentScriptInfo.version 去校验版本，
+ * 并用它作为请求头 source-ver；这个字段为空时接口会直接 404（实测过），
+ * 所以必须优先用脚本**自己声明**的版本，而不是外部登记表里的。
+ */
+function headerMeta(scriptText) {
+  const head = String(scriptText || '').slice(0, 1000);
+  const grab = (re) => {
+    const m = head.match(re);
+    return m ? String(m[1]).trim().replace(/^["']|["']$/g, '') : '';
+  };
+  return {
+    name: grab(/@name\s+(.+)/),
+    version: grab(/@version\s+(.+)/).replace(/^v/i, ''),
+    description: grab(/@description\s+(.+)/),
+    author: grab(/@author\s+(.+)/),
+    homepage: grab(/@homepage\s+(.+)/),
+  };
+}
+
 async function loadScript(scriptPath, options = {}) {
   installProcessGuards();
   const scriptPathResolved = path.resolve(scriptPath);
@@ -203,12 +283,14 @@ async function loadScript(scriptPath, options = {}) {
   const runtime = createLxRuntime(options);
   const { lx } = runtime;
 
+  const meta = headerMeta(scriptText);
+  const baseName = path.basename(scriptPathResolved, path.extname(scriptPathResolved));
   lx.currentScriptInfo = {
-    name: options.name || path.basename(scriptPathResolved, path.extname(scriptPathResolved)),
-    description: options.description || '',
-    version: options.version || '',
-    author: options.author || '',
-    homepage: options.homepage || '',
+    name: meta.name || options.name || baseName,
+    description: meta.description || options.description || '',
+    version: meta.version || options.version || '',
+    author: meta.author || options.author || '',
+    homepage: meta.homepage || options.homepage || '',
     rawScript: scriptText,
   };
 

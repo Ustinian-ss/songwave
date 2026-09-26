@@ -115,6 +115,11 @@ function getExtSources(force) {
   return lxLoadPromise;
 }
 
+/** 已加载音源的健康度：避免每次都先撞已失效的脚本（进程内记忆即可） */
+const srcHealth = new Map();
+const SRC_TRY_TIMEOUT = 12000;   // 单个音源脚本一次取链的最长等待
+const { orderCandidates, markHealth } = require('../src/sources/pick-source');
+
 /** 重新加载（导入/启停后调用） */
 function reloadExt() {
   lxLoadPromise = null;
@@ -122,14 +127,66 @@ function reloadExt() {
   return getExtSources();
 }
 
-/** 找到支持某平台取链的音源 */
-function findSourceFor(lxPlatform, action) {
+/**
+ * 找到支持某平台动作的**全部**音源候选（按健康度排序）。
+ * 同一平台可能装了多个脚本（例如新旧两条「野花🌷」），必须都试一遍，
+ * 否则会一直撞在已失效的那条上。
+ */
+function findSourcesFor(lxPlatform, action) {
   return getExtSources().then((list) => {
-    for (const x of list) {
-      if (x.source.supports(lxPlatform, action)) return x.source;
-    }
-    return null;
+    const cands = list
+      .filter((x) => x.source.supports(lxPlatform, action))
+      .map((x) => Object.assign({ id: (x.entry && (x.entry.id || x.entry.name)) || 'unknown' }, x));
+    return orderCandidates(cands, srcHealth);
   });
+}
+
+/** 按候选顺序依次取链，返回第一个成功的结果；每个候选都有独立超时，坏脚本不会拖住播放 */
+async function resolveViaExtSources(lxPlatform, action, payload, quality) {
+  const cands = await findSourcesFor(lxPlatform, action);
+  if (!cands.length) {
+    const have = extState.sourceKeys.length ? ('已装入的音源支持：' + extState.sourceKeys.join(', ')) : '尚未导入可用音源';
+    return { ok: false, error: '没有能处理 ' + lxPlatform + ' 的音源脚本（' + have + '）', attempts: [] };
+  }
+  const attempts = [];
+  for (const cand of cands) {
+    const label = (cand.entry && cand.entry.name ? cand.entry.name : cand.id);
+    try {
+      const r = await withTimeout(
+        action === 'lyric'
+          ? cand.source.getLyric(lxPlatform, payload.id)
+          : cand.source.getPlayUrl(lxPlatform, payload, quality),
+        SRC_TRY_TIMEOUT,
+        label + ' 超时（' + Math.round(SRC_TRY_TIMEOUT / 1000) + 's）'
+      );
+      if (r) {
+        markHealth(srcHealth, cand.id, true);
+        return { ok: true, value: r, via: label };
+      }
+      markHealth(srcHealth, cand.id, false, '没返回内容');
+      attempts.push(label + '：没返回内容');
+    } catch (e) {
+      const detail = errText(e);
+      markHealth(srcHealth, cand.id, false, detail);
+      attempts.push(label + '：' + detail);
+      logLine('[songwave] 音源脚本失败(' + lxPlatform + ' ' + action + ' @ ' + label + '):', detail);
+    }
+  }
+  return { ok: false, error: attempts.join('；'), attempts: attempts };
+}
+
+/** 给单个音源尝试套一层超时（脚本内部请求可能一直挂着） */
+function withTimeout(promise, ms, message) {
+  let timer = null;
+  const timeout = new Promise((_res, rej) => {
+    timer = setTimeout(() => rej(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
+/** 兼容旧调用：拿到第一个能用该平台的音源（已按健康度排序） */
+function findSourceFor(lxPlatform, action) {
+  return findSourcesFor(lxPlatform, action).then((list) => (list.length ? list[0].source : null));
 }
 
 function createWindow() {
@@ -480,21 +537,10 @@ ipcMain.handle('songwave-play-url', async (_e, payload) => {
     //      并把真实失败原因写进日志（含 fetch 的 err.cause），不再是静默没声
     if (payload && payload.extKey) {
       const attempts = [];
-      const src = await findSourceFor(payload.extKey, 'musicUrl');
-      if (src) {
-        try {
-          const url = await src.getPlayUrl(payload.extKey, payload, payload.quality);
-          if (url) return { ok: true, url: url, via: 'ext:' + payload.extKey };
-          attempts.push('扩展音源没返回地址');
-        } catch (e) {
-          const detail = errText(e);
-          attempts.push('扩展音源：' + detail);
-          logLine('[songwave] 扩展音源取链失败(' + payload.extKey + '):', detail);
-        }
-      } else {
-        const have = extState.sourceKeys.length ? ('已装入的音源支持：' + extState.sourceKeys.join(', ')) : '尚未导入可用音源';
-        attempts.push('没有能取链 ' + payload.extKey + ' 的音源脚本（' + have + '）');
-      }
+      // ① 扩展音源脚本：同一平台可能有多个脚本（新旧版本并存），逐个试
+      const ext = await resolveViaExtSources(payload.extKey, 'musicUrl', payload, payload.quality);
+      if (ext.ok) return { ok: true, url: ext.value, via: 'ext:' + payload.extKey + ' @ ' + ext.via };
+      attempts.push('扩展音源：' + ext.error);
 
       const nativeMod = NATIVE_PLAY_MAP[payload.extKey];
       if (nativeMod) {
@@ -529,13 +575,49 @@ ipcMain.handle('songwave-play-url', async (_e, payload) => {
   }
 });
 
+// 音源体检：用一首真实的酷我歌逐个测试已装脚本，直接告诉用户"哪个脚本真的能用"
+ipcMain.handle('songwave-src-probe', async (_e, payload) => {
+  const list = await getExtSources();
+  const platform = (payload && payload.platform) || 'kw';
+  const song = (payload && payload.song) || { songmid: '239211505', id: '239211505', name: '野火', artist: '戾格', interval: 232 };
+  const durationMs = song.durationMs || (song.interval ? song.interval * 1000 : 0);
+  const results = [];
+  for (const x of list) {
+    const label = x.entry.name + (x.entry.version ? (' v' + x.entry.version) : '');
+    const id = x.entry.id || x.entry.name;
+    if (!x.source.supports(platform, 'musicUrl')) {
+      results.push({ name: label, ok: false, skipped: true, detail: '不支持 ' + platform + ' 取链' });
+      continue;
+    }
+    const t0 = Date.now();
+    try {
+      const url = await withTimeout(x.source.getPlayUrl(platform, song, '128k'), SRC_TRY_TIMEOUT, '超时（' + Math.round(SRC_TRY_TIMEOUT / 1000) + 's）');
+      const probe = await probeAudio(url, { timeout: 5000 });
+      const preview = probe.ok && isPreviewClip(probe.totalLength, durationMs);
+      markHealth(srcHealth, id, !!probe.ok, probe.reason);
+      results.push({
+        name: label, ok: !!probe.ok, ms: Date.now() - t0,
+        detail: probe.ok
+          ? (preview ? ('可播（仅试听，约 ' + Math.max(1, Math.round(probe.totalLength / 16000)) + ' 秒）') : '可播（完整版）')
+          : probe.reason,
+        url: String(url).slice(0, 80),
+      });
+    } catch (e) {
+      const detail = errText(e);
+      markHealth(srcHealth, id, false, detail);
+      results.push({ name: label, ok: false, ms: Date.now() - t0, detail: detail });
+    }
+  }
+  logLine('[songwave] 音源体检(' + platform + '):', results.map((r) => r.name + '=' + (r.ok ? 'ok' : 'fail(' + r.detail + ')')).join(' | '));
+  return { ok: true, platform: platform, results: results };
+});
+
 ipcMain.handle('songwave-lyric', async (_e, payload) => {
   try {
     if (payload && payload.extKey) {
-      const src = await findSourceFor(payload.extKey, 'lyric');
-      if (!src) return { ok: false, error: '没有支持歌词的 扩展音源' };
-      const lyric = await src.getLyric(payload.extKey, payload.id);
-      return { ok: true, data: lyric };
+      const ext = await resolveViaExtSources(payload.extKey, 'lyric', payload, null);
+      if (ext.ok) return { ok: true, data: ext.value };
+      return { ok: false, error: '歌词获取失败：' + ext.error };
     }
     const nid = Number(payload && payload.id !== undefined ? payload.id : payload);
     const lyric = await netease.getLyric(nid);
