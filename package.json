@@ -19,7 +19,7 @@
     "test:script": "node scripts/test-script-runtime.js",
     "test:download": "node scripts/test-download.js",
     "build:dir": "electron-builder --win --dir",
-    "test:all": "node scripts/test-renderer.js && node scripts/test-extras.js && node scripts/test-match.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-platforms.js && node scripts/test-wallpaper-engine.js && node scripts/test-source-manager.js && node scripts/test-import-sources.js && node scripts/test-playlist-import.js && node scripts/test-script-runtime.js && node scripts/test-audio-effects.js",
+    "test:all": "node scripts/test-renderer.js && node scripts/test-extras.js && node scripts/test-match.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-platforms.js && node scripts/test-wallpaper-engine.js && node scripts/test-source-manager.js && node scripts/test-import-sources.js && node scripts/test-playlist-import.js && node scripts/test-script-runtime.js && node scripts/test-audio-effects.js && node scripts/test-preload-api.js",
     "test:wallpaper": "node scripts/test-wallpaper.js",
     "test:platforms": "node scripts/test-platforms.js",
     "test:we": "node scripts/test-wallpaper-engine.js",
@@ -28,7 +28,8 @@
     "test:plimp": "node scripts/test-playlist-import.js",
     "test:match": "node scripts/test-match.js",
     "test:fx": "node scripts/test-audio-effects.js",
-    "test:extras": "node scripts/test-extras.js"
+    "test:extras": "node scripts/test-extras.js",
+    "test:preload": "node scripts/test-preload-api.js"
   },
   "devDependencies": {
     "electron": "^32.0.0",
