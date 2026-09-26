@@ -84,7 +84,13 @@ function createLxRuntime(options = {}) {
     } catch (e) {
       err = e;
     }
-    if (typeof callback === 'function') callback(err, response, body);
+    // 脚本回调里可能抛错：就地吞掉，绝不让它逃逸成未处理拒绝（会崩主进程）
+    if (typeof callback === 'function') {
+      try { callback(err, response, body); }
+      catch (e) {
+        console.log('[ext-source] 脚本回调抛错（已忽略）:', (e && e.message) || e);
+      }
+    }
     return err;
   }
 
@@ -177,7 +183,21 @@ function createLxRuntime(options = {}) {
  * @param {object} [options] { requestImpl, name, description, version, author, homepage, initTimeoutMs }
  * @returns {Promise<{ runtime, scriptText, sources: object, updateAlert }>}
  */
+// —— 防崩护栏：脚本内部的 Promise 链可能在 .finally/.then 里抛错，
+//    Node 默认会把「未处理的拒绝」升级成进程 abort。装上护栏后只记录日志，应用继续运行。
+let guardsInstalled = false;
+function installProcessGuards() {
+  if (guardsInstalled) return;
+  guardsInstalled = true;
+  process.on('uncaughtException', (e) => {
+    console.log('[ext-source] 未捕获异常（已忽略）:', (e && (e.stack || e.message)) || e);
+  });
+  process.on('unhandledRejection', (r) => {
+    console.log('[ext-source] 未处理的 Promise 拒绝（已忽略）:', (r && (r.stack || r.message)) || r);
+  });
+}
 async function loadScript(scriptPath, options = {}) {
+  installProcessGuards();
   const scriptPathResolved = path.resolve(scriptPath);
   const scriptText = fs.readFileSync(scriptPathResolved, 'utf8');
   const runtime = createLxRuntime(options);
@@ -204,7 +224,14 @@ async function loadScript(scriptPath, options = {}) {
     crypto,
     atob: (s) => Buffer.from(s, 'base64').toString('binary'),
     btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
-    navigator: { userAgent: 'SongWave/0.3 (script-runtime)' },
+    navigator: { userAgent: 'SongWave/2.0 (ext-source-runtime)' },
+    // 脚本常会调用这些浏览器 API：不存在的话一加载就 TypeError
+    addEventListener: function () {},
+    removeEventListener: function () {},
+    setInterval: setInterval,
+    clearInterval: clearInterval,
+    document: { addEventListener: function () {}, removeEventListener: function () {}, createElement: function () { return { style: {} }; } },
+    location: { href: 'about:blank', search: '' },
   };
   vm.createContext(sandbox);
   // 让脚本里 window/self/globalThis 都指向同一全局
@@ -225,4 +252,4 @@ async function loadScript(scriptPath, options = {}) {
   return { runtime, scriptText, sources: inited.sources, updateAlert: runtime.getUpdateAlert() };
 }
 
-module.exports = { loadScript, createLxRuntime, EVENT_NAMES };
+module.exports = { loadScript, createLxRuntime, EVENT_NAMES, installProcessGuards };

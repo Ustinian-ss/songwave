@@ -1517,14 +1517,16 @@
       if (del) del.onclick = () => removeSrc(it.id);
       srcListEl.appendChild(row);
     });
-    if (srcHintEl && state && state.loaded) {
+    if (srcHintEl && state && state.loading) {
+      srcHintEl.textContent = '音源正在后台加载…（慢脚本不影响其它功能）';
+    } else if (srcHintEl && state && state.loaded) {
       srcHintEl.textContent = '已就绪平台：' + (state.sourceKeys.join(', ') || '—');
     }
   }
-  async function loadSrcList() {
+  async function loadSrcList(force) {
     if (!window.songwave.srcList || !srcListEl) return;
     let r = null;
-    try { r = await window.songwave.srcList(); } catch (e) { r = null; }
+    try { r = await window.songwave.srcList(!!force); } catch (e) { r = null; }
     if (!r || !r.ok) {
       srcListEl.innerHTML = '<div class="we-empty">读取音源列表失败' + (r && r.error ? '：' + esc(r.error) : '') + '</div>';
       return;
@@ -1549,6 +1551,7 @@
     const r = await window.songwave.srcToggle({ id, enabled });
     if (!r || !r.ok) { setStatus('切换失败：' + ((r && r.error) || ''), 5000); return; }
     renderSrcItems(r.items, r.state);
+    setTimeout(loadSrcList, 1200);
     updateLxStatus();
     setStatus(enabled ? '音源已启用' : '音源已停用', 2000);
   }
@@ -1602,7 +1605,7 @@
       };
     }
     const refreshBtn = $('src-refresh');
-    if (refreshBtn) refreshBtn.onclick = loadSrcList;
+    if (refreshBtn) refreshBtn.onclick = () => loadSrcList(true);   // ↻ 强制重试失败的音源
     const autoChk = $('chk-autoswitch');
     if (autoChk) {
       autoChk.checked = autoSwitch;

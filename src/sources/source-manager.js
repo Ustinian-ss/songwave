@@ -41,7 +41,7 @@ function looksLikeLxScript(text) {
 function createSourceManager(opts) {
   const dir = opts.dir;
   const fetchImpl = opts.fetchImpl || ((...a) => fetch(...a));
-  const initTimeoutMs = opts.initTimeoutMs || 20000;
+  const initTimeoutMs = opts.initTimeoutMs || 8000;
   const regPath = path.join(dir, 'sources.json');
 
   fs.mkdirSync(dir, { recursive: true });
@@ -237,13 +237,21 @@ function createSourceManager(opts) {
     return e;
   }
 
-  /** 加载所有已启用的音源，返回 [{entry, source}]，source 为 script-source 适配对象 */
-  async function loadEnabled() {
-    const out = [];
-    for (const entry of readRegistry()) {
-      if (!entry.enabled) continue;
+  /** 加载所有已启用的音源（**并行**，避免一个慢脚本拖死整个界面） */
+  async function loadEnabled(options = {}) {
+    const retryFailed = !!options.retryFailed;
+    const RETRY_AFTER = 10 * 60 * 1000;   // 失败的音源 10 分钟后才再试，避免每次启动都白等超时
+    const entries = readRegistry().filter((e) => {
+      if (!e.enabled) return false;
+      if (e.ok === false && !retryFailed) {
+        const last = e.lastLoadedAt || 0;
+        if (Date.now() - last < RETRY_AFTER) return false;
+      }
+      return true;
+    });
+    const results = await Promise.all(entries.map(async (entry) => {
+      const t0 = Date.now();
       try {
-        // 这里复用 script-source 适配层，避免重复实现
         const { createLxSource } = require('./script-source');
         const source = await createLxSource(entry.file, {
           name: entry.name,
@@ -251,15 +259,27 @@ function createSourceManager(opts) {
           author: entry.author || '',
           homepage: entry.homepage || '',
           description: entry.description || '',
-          initTimeoutMs,
+          initTimeoutMs: entry.initTimeoutMs || initTimeoutMs,
         });
-        out.push({ entry, source });
+        return { entry, source, ms: Date.now() - t0 };
       } catch (e) {
-        // 加载失败不阻塞其它音源
-        out.push({ entry, source: null, error: String(e && e.message || e) });
+        return { entry, source: null, error: String(e && e.message || e), ms: Date.now() - t0 };
       }
-    }
-    return out;
+    }));
+    // 把探测结果写回注册表：界面能看到 ok/失败原因，失败的不会每次都被反复重试
+    try {
+      const reg = readRegistry();
+      results.forEach((r) => {
+        const e = reg.find((x) => x.id === r.entry.id);
+        if (!e) return;
+        e.ok = !!r.source;
+        e.error = r.source ? '' : (r.error || '加载失败');
+        e.loadMs = r.ms;
+        e.lastLoadedAt = Date.now();
+      });
+      writeRegistry(reg);
+    } catch (e) { /* ignore */ }
+    return results;
   }
 
   return {

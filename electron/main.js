@@ -1,6 +1,7 @@
 // 声浪 SongWave · Electron 主进程
-const { app, BrowserWindow, ipcMain, dialog, session, desktopCapturer, screen, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, desktopCapturer, screen, globalShortcut, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 const netease = require('../src/sources/netease');
 const extKey = require('../src/sources/script-source');
@@ -9,22 +10,54 @@ const { downloadFile } = require('../src/download');
 
 let win = null;
 let wallpaperWin = null;
+
+// —— 兜底：音源脚本内部可能异步抛错，绝不能让主进程崩掉 ——
+process.on('uncaughtException', (e) => {
+  logLine('[songwave] 未捕获异常（已忽略，应用继续运行）:', (e && e.stack) || e);
+});
+process.on('unhandledRejection', (r) => {
+  logLine('[songwave] 未处理的 Promise 拒绝（已忽略）:', (r && (r.stack || r.message)) || r);
+});
 let wallpaperParams = null;
 
 // —— 扩展音源（链接导入 / 本地导入 / 多音源并存 / 启用停用） ——
 // 不写死任何本机路径：脚本请通过「音源管理」导入，或用 SONGWAVE_SOURCE_SCRIPT 指定
 const SOURCE_SCRIPT = process.env.SONGWAVE_SOURCE_SCRIPT || '';
-const SOURCE_INIT_TIMEOUT = Number(process.env.SONGWAVE_SOURCE_INIT_TIMEOUT) || 30000;
+const SOURCE_INIT_TIMEOUT = Number(process.env.SONGWAVE_SOURCE_INIT_TIMEOUT) || 8000;   // 失败要快（慢脚本可用环境变量调大）
 let srcMgr = null;
 let lxLoadPromise = null;
 let extState = { loading: false, loaded: false, name: '', sourceKeys: [], searchSources: [], error: '', items: [] };
 
+// —— 运行日志（打包版看不到控制台，写文件便于排查） ——
+let logFilePath = null;
+function logLine() {
+  const parts = Array.prototype.slice.call(arguments).map((x) => (typeof x === 'string' ? x : (() => { try { return JSON.stringify(x); } catch (e) { return String(x); } })()));
+  const line = new Date().toISOString() + ' ' + parts.join(' ');
+  try { console.log(line); } catch (e) { /* ignore */ }
+  try {
+    if (!logFilePath) logFilePath = path.join(app.getPath('userData'), 'songwave.log');
+    if (fs.existsSync(logFilePath) && fs.statSync(logFilePath).size > 512 * 1024) fs.writeFileSync(logFilePath, '');
+    fs.appendFileSync(logFilePath, line + '\n');
+  } catch (e) { /* ignore */ }
+}
+
 function getSrcMgr() {
   if (!srcMgr) {
-    srcMgr = createSourceManager({
-      dir: path.join(app.getPath('userData'), 'script-sources'),
-      initTimeoutMs: SOURCE_INIT_TIMEOUT,
-    });
+    let base;
+    try {
+      base = app.getPath('userData');
+    } catch (e) {
+      console.log('[songwave] userData 不可用，回退临时目录:', e && e.message);
+      base = path.join(require('os').tmpdir(), 'songwave');
+    }
+    const dir = path.join(base, 'script-sources');
+    logLine('[songwave] 音源目录:', dir);
+    try {
+      srcMgr = createSourceManager({ dir, initTimeoutMs: SOURCE_INIT_TIMEOUT });
+    } catch (e) {
+      console.log('[songwave] 音源目录不可用，改用临时目录:', e && e.message);
+      srcMgr = createSourceManager({ dir: path.join(require('os').tmpdir(), 'songwave-sources'), initTimeoutMs: SOURCE_INIT_TIMEOUT });
+    }
   }
   return srcMgr;
 }
@@ -44,12 +77,15 @@ async function ensureDefaultSource() {
 }
 
 /** 加载所有启用音源（带缓存） */
-function getExtSources() {
+function getExtSources(force) {
   if (!lxLoadPromise) {
     extState.loading = true;
     lxLoadPromise = (async () => {
+      const __t0 = Date.now();
+      logLine('[songwave] 音源加载开始 | 注册', getSrcMgr().list().length, '个 | force=', !!force);
       await ensureDefaultSource();
-      const loaded = await getSrcMgr().loadEnabled();
+      const loaded = await getSrcMgr().loadEnabled({ retryFailed: !!force });
+      logLine('[songwave] 音源加载结束 | 用时', (Date.now() - __t0) + 'ms | 结果:', loaded.map((x) => (x.entry.name + '=' + (x.source ? 'ok' : 'fail'))).join(', '));
       const okList = loaded.filter((x) => x.source);
       const sourceKeys = [];
       const searchSources = [];
@@ -145,6 +181,7 @@ function setupWindowShortcuts(win) {
 }
 
 app.whenReady().then(() => {
+  logLine('[songwave] 启动 version=' + app.getVersion() + ' electron=' + process.versions.electron + ' packaged=' + app.isPackaged);
   setupDisplayMedia();
   createWindow();
   createTray();          // 系统托盘（可在面板里关闭）
@@ -198,12 +235,13 @@ function setupMaximizeEvents() {
 ipcMain.handle('songwave-ext-status', () => extState);
 
 // 音源管理（自定义音源：粘贴链接导入）
-ipcMain.handle('songwave-src-list', async () => {
+ipcMain.handle('songwave-src-list', async (_e, force) => {
   try {
     const mgr = getSrcMgr();
-    await getExtSources();               // 触发一次加载，保证 items 状态最新
+    await getExtSources(!!force);        // force=true 时重试上次失败的音源
     return { ok: true, items: mgr.list(), state: extState };
   } catch (err) {
+    logLine('[songwave] src-list 失败:', (err && err.stack) || err);
     return { ok: false, error: String(err && err.message || err) };
   }
 });
@@ -214,9 +252,10 @@ ipcMain.handle('songwave-src-add', async (_e, payload) => {
     const text = payload && (payload.text || payload.url) ? String(payload.text || payload.url).trim() : '';
     if (!text) return { ok: false, error: '请填写音源链接或粘贴脚本 / 分享文本' };
     const r = await mgr.addFromText(text, { name: payload && payload.name });
-    await reloadExt();
+    reloadExt();   // 后台刷新，不阻塞返回
     return { ok: true, entries: r.entries, errors: r.errors, state: extState };
   } catch (err) {
+    logLine('[songwave] src-add 失败:', (err && err.stack) || err);
     return { ok: false, error: String(err && err.message || err) };
   }
 });
@@ -241,9 +280,10 @@ ipcMain.handle('songwave-src-import-external', async (_e, only) => {
     const lxImport = require('../src/sources/import-sources');
     const mgr = getSrcMgr();
     const r = await lxImport.importFromLxMusic(mgr, { only: Array.isArray(only) ? only : undefined });
-    await reloadExt();
+    reloadExt();   // 后台刷新，不阻塞返回
     return { ok: true, file: r.file, imported: r.imported, skipped: r.skipped, items: mgr.list(), state: extState };
   } catch (err) {
+    logLine('[songwave] src-import 失败:', (err && err.stack) || err);
     return { ok: false, error: String(err && err.message || err) };
   }
 });
@@ -255,9 +295,10 @@ ipcMain.handle('songwave-src-import-dir', async () => {
   try {
     const mgr = getSrcMgr();
     const res = await mgr.importFromDirectory(r.filePaths[0]);
-    await reloadExt();
+    reloadExt();   // 后台刷新，不阻塞返回
     return { ok: true, dir: res.dir, scanned: res.scanned, imported: res.imported, skipped: res.skipped, items: mgr.list(), state: extState };
   } catch (err) {
+    logLine('[songwave] src-import-dir 失败:', (err && err.stack) || err);
     return { ok: false, error: String(err && err.message || err) };
   }
 });
@@ -267,7 +308,7 @@ ipcMain.handle('songwave-src-update', async (_e, id) => {
   try {
     const mgr = getSrcMgr();
     const entry = await mgr.update(id);
-    await reloadExt();
+    reloadExt();   // 后台刷新，不阻塞返回
     return { ok: true, entry, items: mgr.list(), state: extState };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
@@ -278,7 +319,7 @@ ipcMain.handle('songwave-src-toggle', async (_e, payload) => {
   try {
     const mgr = getSrcMgr();
     mgr.toggle(payload && payload.id, !!(payload && payload.enabled));
-    await reloadExt();
+    reloadExt();   // 后台刷新，不阻塞返回
     return { ok: true, items: mgr.list(), state: extState };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
@@ -289,7 +330,7 @@ ipcMain.handle('songwave-src-remove', async (_e, id) => {
   try {
     const mgr = getSrcMgr();
     mgr.remove(id);
-    await reloadExt();
+    reloadExt();   // 后台刷新，不阻塞返回
     return { ok: true, items: mgr.list(), state: extState };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
@@ -306,7 +347,7 @@ ipcMain.handle('songwave-src-pick', async () => {
   try {
     const mgr = getSrcMgr();
     const entry = await mgr.addFromFile(r.filePaths[0]);
-    await reloadExt();
+    reloadExt();   // 后台刷新，不阻塞返回
     return { ok: true, entry, items: mgr.list(), state: extState };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
@@ -390,6 +431,7 @@ ipcMain.handle('songwave-search', async (_e, keywords, sourceKey) => {
     const [list, extList] = await Promise.all([mod.search(kw), lxTask]);
     return { ok: true, data: list.concat(extList), source: key };
   } catch (err) {
+    logLine('[songwave] search 失败:', (err && err.stack) || err);
     return { ok: false, error: String(err && err.message || err) };
   }
 });
@@ -419,6 +461,7 @@ ipcMain.handle('songwave-play-url', async (_e, payload) => {
     const url = await netease.getPlayUrl(nid);
     return { ok: true, url, via: 'netease' };
   } catch (err) {
+    logLine('[songwave] play-url 失败:', (err && err.stack) || err);
     return { ok: false, error: String(err && err.message || err) };
   }
 });
@@ -435,6 +478,7 @@ ipcMain.handle('songwave-lyric', async (_e, payload) => {
     const lyric = await netease.getLyric(nid);
     return { ok: true, data: lyric };
   } catch (err) {
+    logLine('[songwave] lyric 失败:', (err && err.stack) || err);
     return { ok: false, error: String(err && err.message || err) };
   }
 });
@@ -550,6 +594,7 @@ ipcMain.handle('songwave-we-list', (_e, force) => {
       defaults: weEngine.defaultBackgroundSettings(),
     };
   } catch (err) {
+    logLine('[songwave] we-list 失败:', (err && err.stack) || err);
     return { ok: false, error: String(err && err.message || err) };
   }
 });
@@ -794,7 +839,7 @@ function createTray() {
     const img = nativeImage.createFromPath(iconPath);
     tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img.resize({ width: 16, height: 16 }));
   } catch (e) {
-    console.log('[songwave] 托盘创建失败:', e && e.message);
+    logLine('[songwave] 托盘创建失败:', e && e.message);
     return null;
   }
   tray.setToolTip('声浪 SongWave');
@@ -826,6 +871,7 @@ ipcMain.handle('songwave-charts', async (_e, payload) => {
     }
     return { ok: false, error: '未知操作：' + p.action };
   } catch (err) {
+    logLine('[songwave] charts 失败:', (err && err.stack) || err);
     return { ok: false, error: String(err && err.message || err) };
   }
 });
