@@ -63,12 +63,27 @@
     <div class="side-body hidden" id="side-list">
       <div class="list-tools">
         <button class="btn" id="btn-local">📁 本地音乐</button>
-        <button class="btn" id="btn-save-dir" title="设置下载目录">⤓ 下载目录</button>
+        <button class="btn" id="btn-pl-import" title="导入外部歌单（粘贴链接或文本）">📥 歌单</button>
+        <button class="btn" id="btn-save-dir" title="设置下载目录">⤓</button>
         <button class="btn" id="btn-clear-list" title="清空播放列表">🗑</button>
+      </div>
+      <div id="pl-import" class="pl-import hidden">
+        <textarea id="pl-import-text" placeholder="粘贴歌单链接（网易云 / QQ 音乐），或每行一首「歌名 - 歌手」" spellcheck="false"></textarea>
+        <div class="row">
+          <button class="btn btn-primary" id="pl-import-btn">导入</button>
+          <button class="btn" id="pl-import-file">从文件</button>
+          <button class="btn mini" id="pl-import-close">✕</button>
+        </div>
       </div>
       <div id="playlist" class="vlist"></div>
     </div>
     <div class="side-body hidden" id="side-lyric">
+      <div class="lyric-tools">
+        <button class="btn mini" id="lyr-minus" title="歌词提前 0.5s">−0.5s</button>
+        <span class="lyric-offset" id="lyric-offset-val">0.0s</span>
+        <button class="btn mini" id="lyr-plus" title="歌词延后 0.5s">+0.5s</button>
+        <button class="btn mini" id="lyr-reset" title="重置偏移">重置</button>
+      </div>
       <div id="lyric" class="lyric-list"></div>
     </div>
     <div id="lx-status" class="lx-status" title="音源状态">音源加载中…</div>
@@ -117,7 +132,11 @@
           <button class="btn btn-primary" id="src-add-btn">导入</button>
         </div>
         <div class="row src-tools">
-          <button class="btn" id="src-pick">从文件导入</button>
+          <button class="btn" id="src-import-lx" title="读取 %APPDATA%\lx-music-desktop\LxDatas\user_api.json">从 LX Music 导入</button>
+          <button class="btn" id="src-import-dir">文件夹导入</button>
+          <button class="btn" id="src-pick">选文件</button>
+        </div>
+        <div class="row src-tools">
           <span class="src-hint" id="src-hint">未装入音源时，QQ/酷狗/酷我/咪咕 无法播放</span>
         </div>
         <div id="src-list"><div class="we-empty">加载中…</div></div>

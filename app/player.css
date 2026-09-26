@@ -485,3 +485,20 @@ body.bg-blend .songwave-rings { opacity: var(--viz-opacity, .85); }
   cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px;
 }
 .src-item .src-del:hover { color: #ff6b6b; }
+
+/* 歌词工具条（偏移调节 + 点击跳转提示） */
+.lyric-tools { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.lyric-offset { font-size: 11px; color: #8fa4c4; min-width: 42px; text-align: center; }
+.lyric-line { cursor: pointer; }
+.lyric-line:hover { color: #cfe3ff; }
+
+/* 歌单导入 */
+.pl-import { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 9px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); }
+.pl-import.hidden { display: none; }
+.pl-import textarea {
+  width: 100%; min-height: 74px; resize: vertical;
+  background: rgba(0,0,0,.28); color: #e6eefc;
+  border: 1px solid rgba(255,255,255,.12); border-radius: 7px;
+  padding: 6px 8px; font-size: 12px; font-family: inherit;
+}
+.pl-import .row { display: flex; gap: 6px; }

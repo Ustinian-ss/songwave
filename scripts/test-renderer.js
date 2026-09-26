@@ -71,6 +71,8 @@ let lastWallpaper = null;
 let lastWallpaperParams = null;
 let lastSearchSource = null;
 let lastSrcAdd = null;
+let lastLxImport = false;
+let lastPlImport = null;
 const tabEls = [
   { dataset: { tab: 'search' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
   { dataset: { tab: 'list' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
@@ -155,6 +157,14 @@ const sandbox = {
       srcToggle: async () => ({ ok: true, items: [], state: { loaded: true, sourceKeys: [] } }),
       srcRemove: async () => ({ ok: true, items: [], state: { loaded: false, sourceKeys: [] } }),
       srcPick: async () => ({ ok: false }),
+      srcImportLx: async () => { lastLxImport = true; return { ok: true, imported: [{ name: '野花🌷', sourceKeys: ['kw', 'tx'] }], skipped: [], items: [], state: { loaded: true, sourceKeys: ['kw', 'tx'], items: [] } }; },
+      srcImportDir: async () => ({ ok: true, scanned: 3, imported: [{ name: 'a' }], items: [], state: { loaded: true, sourceKeys: ['kw'], items: [] } }),
+      srcUpdate: async () => ({ ok: true, entry: { name: 'x' } }),
+      playlistImport: async (p) => {
+        lastPlImport = p;
+        return { ok: true, name: '测试歌单', count: 2, items: [{ id: 'x1', name: 'A', artist: 'B', source: 'netease' }, { id: 'x2', name: 'C', artist: 'D', source: 'netease' }] };
+      },
+      playlistImportFile: async () => ({ ok: false }),
       weList: async () => ({
         ok: true,
         libraries: ['D:\\steam'],
@@ -337,6 +347,34 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     check('导入时带上了链接', (lastSrcAdd || {}).url === 'https://src.example/new.js', JSON.stringify(lastSrcAdd));
     check('导入成功提示', /音源导入成功/.test(ids['status'].textContent), ids['status'].textContent);
     check('导入后清空输入框', srcUrlInput.value === '');
+
+    // 18) 歌词：点击跳转 + 偏移调节
+    check('歌词行可点击（有 onclick）', typeof ids['lyric']._children[0].onclick === 'function');
+    audioEl.currentTime = 99;
+    ids['lyric']._children[0].onclick();
+    check('点击歌词跳转到该行时间', audioEl.currentTime === 1, String(audioEl.currentTime));
+    doc.getElementById('lyr-plus').onclick();
+    check('歌词偏移 +0.5s 生效', /\+0\.5s/.test(ids['lyric-offset-val'].textContent), ids['lyric-offset-val'].textContent);
+    check('歌词偏移已持久化', sandbox.localStorage._d['songwave.lyricOffset'] === '0.5', sandbox.localStorage._d['songwave.lyricOffset']);
+    doc.getElementById('lyr-reset').onclick();
+    check('偏移可重置', /^0\.0s/.test(ids['lyric-offset-val'].textContent), ids['lyric-offset-val'].textContent);
+
+    // 19) 导入外部歌单
+    doc.getElementById('btn-pl-import').onclick();
+    const beforeCount = ids['playlist']._children.length;
+    doc.getElementById('pl-import-text').value = 'https://music.163.com/#/playlist?id=1';
+    await doc.getElementById('pl-import-btn').onclick();
+    await flush();
+    check('歌单导入调用了主进程', !!lastPlImport && /playlist/.test(lastPlImport.text || ''));
+    check('歌单歌曲已加入播放列表', ids['playlist']._children.length === beforeCount + 2, String(ids['playlist']._children.length));
+    check('歌单导入提示', /已导入歌单/.test(ids['status'].textContent), ids['status'].textContent);
+
+    // 20) 从 LX Music 导入音源
+    doc.getElementById('src-import-lx').onclick();
+    await flush();
+    await flush();
+    check('触发了从 LX 导入', lastLxImport === true);
+    check('LX 导入结果提示', /已从 LX 导入/.test(ids['status'].textContent), ids['status'].textContent);
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
     process.exit(fail ? 1 : 0);

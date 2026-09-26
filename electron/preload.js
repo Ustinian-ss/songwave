@@ -39,4 +39,10 @@ contextBridge.exposeInMainWorld('songwave', {
   srcToggle: (payload) => ipcRenderer.invoke('songwave-src-toggle', payload),
   srcRemove: (id) => ipcRenderer.invoke('songwave-src-remove', id),
   srcPick: () => ipcRenderer.invoke('songwave-src-pick'),
+  srcLxPreview: () => ipcRenderer.invoke('songwave-src-lx-preview'),
+  srcImportLx: (only) => ipcRenderer.invoke('songwave-src-import-lx', only),
+  srcImportDir: () => ipcRenderer.invoke('songwave-src-import-dir'),
+  srcUpdate: (id) => ipcRenderer.invoke('songwave-src-update', id),
+  playlistImport: (payload) => ipcRenderer.invoke('songwave-playlist-import', payload),
+  playlistImportFile: () => ipcRenderer.invoke('songwave-playlist-import-file'),
 });

@@ -162,6 +162,21 @@
   const lyricEl = $('lyric');
   let lyricLines = [];
   let activeLyricIndex = -1;
+  let lyricOffset = 0;     // 歌词偏移（秒），正值=歌词提前显示
+  let pendingSeek = null;  // 元数据未就绪时的待跳转位置
+  try {
+    const savedOffset = Number(localStorage.getItem('songwave.lyricOffset'));
+    if (Number.isFinite(savedOffset)) lyricOffset = savedOffset;
+  } catch (e) { /* ignore */ }
+
+  function setLyricOffset(v) {
+    lyricOffset = Math.max(-30, Math.min(30, Math.round(v * 10) / 10));
+    try { localStorage.setItem('songwave.lyricOffset', String(lyricOffset)); } catch (e) { /* ignore */ }
+    updateLyricToolbar();
+    activeLyricIndex = -1;
+    updateLyricActive(audio.currentTime || 0);
+    setStatus('歌词偏移：' + (lyricOffset > 0 ? '+' : '') + lyricOffset.toFixed(1) + 's', 2000);
+  }
 
   function parseLrc(text) {
     const out = [];
@@ -198,14 +213,34 @@
       div.textContent = line.text;
       const tr = transByTime.get(line.t);
       if (tr) div.textContent += '\n' + tr;
+      // 点击歌词跳转到对应时间（对齐 LX 的歌词跳转）
+      div.dataset.t = String(line.t);
+      div.title = '点击跳转到 ' + fmtTime(line.t);
+      div.onclick = () => seekTo(line.t + lyricOffset);
       lyricEl.appendChild(div);
     });
+    updateLyricToolbar();
+  }
+  function updateLyricToolbar() {
+    const el = $('lyric-offset-val');
+    if (el) el.textContent = (lyricOffset > 0 ? '+' : '') + lyricOffset.toFixed(1) + 's';
+  }
+  /** 跳转到指定秒数（音频元数据未就绪时先记住） */
+  function seekTo(t) {
+    const target = Math.max(0, Number(t) || 0);
+    if (audio.duration && Number.isFinite(audio.duration)) {
+      audio.currentTime = Math.min(target, audio.duration);
+      updateLyricActive(audio.currentTime);
+    } else {
+      pendingSeek = target;
+    }
   }
   function updateLyricActive(t) {
     if (!lyricLines.length) return;
+    const tt = t - lyricOffset;   // 歌词偏移：正值表示歌词提前
     let idx = -1;
     for (let i = 0; i < lyricLines.length; i++) {
-      if (lyricLines[i].t <= t) idx = i;
+      if (lyricLines[i].t <= tt) idx = i;
       else break;
     }
     if (idx === activeLyricIndex) return;
@@ -349,6 +384,24 @@
       audio.currentTime = (Number(e.target.value) / 1000) * audio.duration;
     }
   });
+  // 元数据就绪后应用「点击歌词时记下的待跳转位置」
+  audio.addEventListener('loadedmetadata', () => {
+    if (pendingSeek == null) return;
+    const t = pendingSeek;
+    pendingSeek = null;
+    if (audio.duration && Number.isFinite(audio.duration)) {
+      audio.currentTime = Math.min(t, audio.duration);
+      updateLyricActive(audio.currentTime);
+    }
+  });
+  // 歌词偏移按钮
+  {
+    const minus = $('lyr-minus'); const plus = $('lyr-plus'); const reset = $('lyr-reset');
+    if (minus) minus.onclick = () => setLyricOffset(lyricOffset - 0.5);
+    if (plus) plus.onclick = () => setLyricOffset(lyricOffset + 0.5);
+    if (reset) reset.onclick = () => setLyricOffset(0);
+    updateLyricToolbar();
+  }
   $('volume').addEventListener('input', (e) => {
     audio.volume = Number(e.target.value) / 100;
   });
@@ -424,6 +477,51 @@
     resetNowPlaying();
     renderPlaylist();
   };
+
+  // —— 导入外部歌单（对齐 LX：粘贴链接/文本，或从文件） ——
+  const plImportBox = $('pl-import');
+  function togglePlImport(show) {
+    if (!plImportBox) return;
+    const willShow = show === undefined ? plImportBox.classList.contains('hidden') : !!show;
+    plImportBox.classList.toggle('hidden', !willShow);
+  }
+  {
+    const b = $('btn-pl-import'); if (b) b.onclick = () => togglePlImport();
+    const c = $('pl-import-close'); if (c) c.onclick = () => togglePlImport(false);
+  }
+  function addImportedItems(items, label) {
+    (items || []).forEach((it) => playlist.push(it));
+    if (current < 0 && playlist.length) current = 0;
+    renderPlaylist();
+    switchTab('list');
+    togglePlImport(false);
+    setStatus(label, 6000);
+  }
+  {
+    const btn = $('pl-import-btn');
+    if (btn) {
+      btn.onclick = async () => {
+        if (!window.songwave.playlistImport) return;
+        const t = $('pl-import-text');
+        const text = t ? String(t.value || '') : '';
+        if (!text.trim()) { setStatus('请粘贴歌单链接或歌名列表', 3000); return; }
+        setStatus('正在导入歌单…', 0);
+        const r = await window.songwave.playlistImport({ text });
+        if (!r || !r.ok) { setStatus('歌单导入失败：' + ((r && r.error) || ''), 7000); return; }
+        if (t) t.value = '';
+        addImportedItems(r.items, '已导入歌单「' + (r.name || '') + '」共 ' + (r.count || 0) + ' 首');
+      };
+    }
+    const fbtn = $('pl-import-file');
+    if (fbtn) {
+      fbtn.onclick = async () => {
+        if (!window.songwave.playlistImportFile) return;
+        const r = await window.songwave.playlistImportFile();
+        if (!r || !r.ok) { if (r && r.error) setStatus('导入失败：' + r.error, 6000); return; }
+        addImportedItems(r.items, '已从文件导入「' + (r.name || '') + '」共 ' + (r.count || 0) + ' 首');
+      };
+    }
+  }
 
   // —— 下载 ——
   let saveDir = '';
@@ -902,13 +1000,17 @@
       const caps = st.sourceKeys || it.sourceKeys || [];
       row.innerHTML =
         '<input type="checkbox" class="src-toggle"' + (it.enabled ? ' checked' : '') + '>' +
-        '<div class="src-meta"><div class="src-name">' + esc(it.name) + '</div>' +
+        '<div class="src-meta"><div class="src-name">' + esc(it.name) +
+        (it.version ? ' <span class="src-ver">v' + esc(it.version) + '</span>' : '') + '</div>' +
         '<div class="src-sub">' + esc(st.ok
           ? ('支持：' + (caps.join(', ') || '—') + (st.canSearch ? ' · 可搜索' : ' · 仅取链'))
           : ('⚠ ' + (st.error || it.error || '不可用'))) + '</div></div>' +
+        (it.url ? '<button class="src-upd" title="重新下载更新">↻</button>' : '') +
         '<button class="src-del" title="删除">✕</button>';
       const cb = row.querySelector('.src-toggle');
       if (cb) cb.onchange = () => toggleSrc(it.id, cb.checked);
+      const upd = row.querySelector('.src-upd');
+      if (upd) upd.onclick = () => updateSrc(it.id);
       const del = row.querySelector('.src-del');
       if (del) del.onclick = () => removeSrc(it.id);
       srcListEl.appendChild(row);
@@ -956,6 +1058,33 @@
     updateLxStatus();
     setStatus('音源已删除', 2000);
   }
+  async function updateSrc(id) {
+    if (!window.songwave.srcUpdate) return;
+    setStatus('正在更新音源…', 0);
+    const r = await window.songwave.srcUpdate(id);
+    if (!r || !r.ok) { setStatus('更新失败：' + ((r && r.error) || ''), 6000); return; }
+    await loadSrcList();
+    updateLxStatus();
+    setStatus('音源已更新：' + r.entry.name, 4000);
+  }
+  async function importFromLx() {
+    if (!window.songwave.srcImportLx) return;
+    setStatus('正在从 LX Music 读取音源…', 0);
+    const r = await window.songwave.srcImportLx();
+    if (!r || !r.ok) { setStatus('从 LX 导入失败：' + ((r && r.error) || ''), 8000); return; }
+    renderSrcItems(r.items, r.state);
+    updateLxStatus();
+    setStatus('已从 LX 导入 ' + r.imported.length + ' 个音源' +
+      (r.skipped && r.skipped.length ? ('（' + r.skipped.length + ' 个未成功）') : ''), 8000);
+  }
+  async function importFromDir() {
+    if (!window.songwave.srcImportDir) return;
+    const r = await window.songwave.srcImportDir();
+    if (!r || !r.ok) { if (r && r.error) setStatus('文件夹导入失败：' + r.error, 7000); return; }
+    renderSrcItems(r.items, r.state);
+    updateLxStatus();
+    setStatus('扫描 ' + r.scanned + ' 个文件，导入 ' + r.imported.length + ' 个音源', 7000);
+  }
   {
     const addBtn = $('src-add-btn');
     if (addBtn) addBtn.onclick = addSrc;
@@ -972,6 +1101,10 @@
     }
     const refreshBtn = $('src-refresh');
     if (refreshBtn) refreshBtn.onclick = loadSrcList;
+    const lxBtn = $('src-import-lx');
+    if (lxBtn) lxBtn.onclick = importFromLx;
+    const dirBtn = $('src-import-dir');
+    if (dirBtn) dirBtn.onclick = importFromDir;
   }
 
   // —— 引导逻辑 ——

@@ -202,11 +202,64 @@ ipcMain.handle('songwave-src-list', async () => {
 ipcMain.handle('songwave-src-add', async (_e, payload) => {
   try {
     const mgr = getSrcMgr();
-    const url = payload && payload.url ? String(payload.url).trim() : '';
-    if (!url) return { ok: false, error: '请填写音源链接' };
-    const entry = await mgr.addFromUrl(url, { name: payload && payload.name });
+    const text = payload && (payload.text || payload.url) ? String(payload.text || payload.url).trim() : '';
+    if (!text) return { ok: false, error: '请填写音源链接或粘贴脚本 / 分享文本' };
+    const r = await mgr.addFromText(text, { name: payload && payload.name });
     await reloadLx();
-    return { ok: true, entry, state: lxState };
+    return { ok: true, entries: r.entries, errors: r.errors, state: lxState };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+// 从 LX Music 一键导入（读 %APPDATA%\lx-music-desktop\LxDatas\user_api.json）
+ipcMain.handle('songwave-src-lx-preview', async () => {
+  try {
+    const lxImport = require('../src/sources/lx-import');
+    const file = lxImport.findLxUserApiFile();
+    if (!file) return { ok: false, error: '没有找到 LX Music 的音源数据（user_api.json）' };
+    const list = lxImport.readLxUserApis(file).map((a) => ({
+      id: a.id, name: a.name, version: a.version, author: a.author, homepage: a.homepage, bytes: a.script.length,
+    }));
+    return { ok: true, file, list };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('songwave-src-import-lx', async (_e, only) => {
+  try {
+    const lxImport = require('../src/sources/lx-import');
+    const mgr = getSrcMgr();
+    const r = await lxImport.importFromLxMusic(mgr, { only: Array.isArray(only) ? only : undefined });
+    await reloadLx();
+    return { ok: true, file: r.file, imported: r.imported, skipped: r.skipped, items: mgr.list(), state: lxState };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+// 从文件夹批量导入 .js 音源
+ipcMain.handle('songwave-src-import-dir', async () => {
+  const r = await dialog.showOpenDialog(win, { title: '选择存放 lx 音源脚本的文件夹', properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths.length) return { ok: false };
+  try {
+    const mgr = getSrcMgr();
+    const res = await mgr.importFromDirectory(r.filePaths[0]);
+    await reloadLx();
+    return { ok: true, dir: res.dir, scanned: res.scanned, imported: res.imported, skipped: res.skipped, items: mgr.list(), state: lxState };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+// 重新下载更新
+ipcMain.handle('songwave-src-update', async (_e, id) => {
+  try {
+    const mgr = getSrcMgr();
+    const entry = await mgr.update(id);
+    await reloadLx();
+    return { ok: true, entry, items: mgr.list(), state: lxState };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
   }
@@ -291,6 +344,15 @@ ipcMain.handle('songwave-search', async (_e, keywords, sourceKey) => {
 
 ipcMain.handle('songwave-play-url', async (_e, payload) => {
   try {
+    // 文本歌单导入的条目：先按「歌名 歌手」搜索，再取链
+    if (payload && payload.source === 'search') {
+      const kw = [payload.name, payload.artist].filter(Boolean).join(' ').trim();
+      const list = await netease.search(kw, 5);
+      if (!list.length) return { ok: false, error: '没有搜到：' + kw };
+      const first = list[0];
+      const url = await netease.getPlayUrl(Number(first.id));
+      return { ok: true, url, via: 'search→netease', resolved: first };
+    }
     // 带 lxSource 的条目（QQ/酷狗/酷我/咪咕）统一走 lx 用户音源脚本取链
     if (payload && payload.lxSource) {
       const src = await findSourceFor(payload.lxSource, 'musicUrl');
@@ -338,6 +400,45 @@ ipcMain.handle('open-local-files', async () => {
   return r.filePaths;
 });
 
+// —— 外部歌单导入（对齐 LX：粘贴分享链接 / 文本歌单 / 本地文件） ——
+const { createPlaylistImporter } = require('../src/playlist-import');
+const playlistImporter = createPlaylistImporter();
+
+ipcMain.handle('songwave-playlist-import', async (_e, payload) => {
+  try {
+    const text = payload && (payload.text != null ? payload.text : payload);
+    if (!text || !String(text).trim()) return { ok: false, error: '请粘贴歌单链接或文本' };
+    const r = await playlistImporter.importFromText(String(text));
+    return { ok: true, name: r.name, cover: r.cover, platform: r.platform, items: r.items, count: r.items.length };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('songwave-playlist-import-file', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: '选择歌单文件（.txt / .json）',
+    properties: ['openFile'],
+    filters: [{ name: '歌单', extensions: ['txt', 'json', 'm3u'] }, { name: '所有文件', extensions: ['*'] }],
+  });
+  if (r.canceled || !r.filePaths.length) return { ok: false };
+  try {
+    const fs = require('fs');
+    const raw = fs.readFileSync(r.filePaths[0], 'utf8');
+    let text = raw;
+    if (/\.json$/i.test(r.filePaths[0])) {
+      try {
+        const j = JSON.parse(raw);
+        const arr = Array.isArray(j) ? j : (j.items || j.songs || j.tracks || []);
+        text = arr.map((x) => (typeof x === 'string' ? x : [x.name || x.title, x.artist || x.singer].filter(Boolean).join(' - '))).join('\n');
+      } catch (e) { /* 当作纯文本 */ }
+    }
+    const res = await playlistImporter.importFromText(text);
+    return { ok: true, name: res.name || path.basename(r.filePaths[0]), cover: res.cover, platform: res.platform, items: res.items, count: res.items.length };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
 // —— 下载 ——
 const DEFAULT_SAVE_DIR = process.env.SONGWAVE_SAVE_DIR || 'D:\\musicdownload';
 const activeDownloads = new Map();
