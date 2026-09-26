@@ -136,15 +136,36 @@ function setupMaximizeEvents() {
 // —— 音源 IPC ——
 ipcMain.handle('songwave-lx-status', () => lxState);
 
-ipcMain.handle('songwave-search', async (_e, keywords) => {
+// 平台音源（QQ/酷狗/酷我/咪咕）：搜索走平台接口，取链交给 lx 脚本
+const platforms = require('../src/sources/platforms');
+const PLATFORM_MAP = {};
+platforms.PLATFORMS.forEach((p) => { PLATFORM_MAP[p.key] = p; });
+
+ipcMain.handle('songwave-sources', () => ({
+  ok: true,
+  sources: [
+    { key: 'netease', label: '网易云', lxSource: 'wy' },
+    ...platforms.PLATFORMS.map((p) => ({ key: p.key, label: p.label, lxSource: p.lxSource })),
+  ],
+}));
+
+ipcMain.handle('songwave-search', async (_e, keywords, sourceKey) => {
   if (!keywords || !String(keywords).trim()) return { ok: false, error: '关键词为空' };
   const kw = String(keywords).trim();
+  const key = sourceKey || 'netease';
   try {
-    const [neteaseList, lxList] = await Promise.all([
-      netease.search(kw),
-      getLx().then((src) => (src ? src.search(kw, 15) : [])),
-    ]);
-    return { ok: true, data: neteaseList.concat(lxList) };
+    const lxTask = getLx().then((src) => {
+      // 只在 lx 脚本真的声明了搜索动作时合并（flower/sixyin 是取链型，通常为空）
+      return src ? src.search(kw, 15) : [];
+    });
+    if (key === 'netease' || key === 'auto') {
+      const [neteaseList, lxList] = await Promise.all([netease.search(kw), lxTask]);
+      return { ok: true, data: neteaseList.concat(lxList), source: 'netease' };
+    }
+    const mod = PLATFORM_MAP[key];
+    if (!mod) return { ok: false, error: '未知音源：' + key };
+    const [list, lxList] = await Promise.all([mod.search(kw), lxTask]);
+    return { ok: true, data: list.concat(lxList), source: key };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
   }
@@ -152,15 +173,19 @@ ipcMain.handle('songwave-search', async (_e, keywords) => {
 
 ipcMain.handle('songwave-play-url', async (_e, payload) => {
   try {
-    if (payload && payload.source === 'lx') {
+    // 带 lxSource 的条目（QQ/酷狗/酷我/咪咕）统一走 lx 用户音源脚本取链
+    if (payload && payload.lxSource) {
       const src = await getLx();
-      if (!src) return { ok: false, error: 'lx 音源未加载' };
+      if (!src) return { ok: false, error: 'lx 音源未加载（' + (lxState.error || '') + '）' };
+      if (!src.supports(payload.lxSource, 'musicUrl')) {
+        return { ok: false, error: '当前 lx 脚本不支持该平台取链：' + payload.lxSource };
+      }
       const url = await src.getPlayUrl(payload.lxSource, payload, payload.quality);
-      return { ok: true, url };
+      return { ok: true, url, via: 'lx:' + payload.lxSource };
     }
     const nid = Number(payload && payload.id !== undefined ? payload.id : payload);
     const url = await netease.getPlayUrl(nid);
-    return { ok: true, url };
+    return { ok: true, url, via: 'netease' };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
   }
@@ -240,6 +265,23 @@ ipcMain.handle('songwave-choose-save-dir', async () => {
 });
 
 ipcMain.handle('songwave-default-save-dir', () => DEFAULT_SAVE_DIR);
+
+// —— Wallpaper Engine 壁纸库（背景） ——
+const weEngine = require('../src/wallpaper-engine');
+let weCache = null;
+ipcMain.handle('songwave-we-list', (_e, force) => {
+  try {
+    if (!weCache || force) weCache = weEngine.discoverWallpapers();
+    return {
+      ok: true,
+      libraries: weCache.libraries,
+      items: weCache.items,
+      defaults: weEngine.defaultBackgroundSettings(),
+    };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
 
 // —— 壁纸模式（模仿 Wallpaper Engine：独立桌面层窗口，无边框、不抢焦点、尽量置底） ——
 function createWallpaperWindow() {

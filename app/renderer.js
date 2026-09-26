@@ -24,6 +24,9 @@
   let current = -1;
   let engineStarted = false;
   let statusTimer = null;
+  // 当前音源（网易/QQ/酷狗/酷我/咪咕）
+  let curSource = 'netease';
+  const SOURCE_LABELS = { netease: '网易云', qq: 'QQ音乐', kugou: '酷狗', kuwo: '酷我', migu: '咪咕' };
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -65,14 +68,24 @@
   async function doSearch() {
     const kw = $('search-input').value.trim();
     if (!kw) return;
-    setStatus('搜索中…', 4000);
-    const r = await window.songwave.search(kw);
+    setStatus('搜索中（' + (SOURCE_LABELS[curSource] || curSource) + '）…', 4000);
+    const r = await window.songwave.search(kw, curSource);
     if (!r.ok) { setStatus('搜索失败：' + r.error); return; }
     renderResults(r.data || []);
     setStatus(r.data && r.data.length ? `找到 ${r.data.length} 首` : '没有结果');
   }
   $('search-btn').onclick = doSearch;
   $('search-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+  // 音源切换（网易 / QQ / 酷狗 / 酷我 / 咪咕）
+  document.querySelectorAll('#src-chips .chip').forEach((b) => {
+    b.onclick = () => {
+      curSource = b.dataset.src || 'netease';
+      document.querySelectorAll('#src-chips .chip').forEach((x) => x.classList.toggle('active', x.dataset.src === curSource));
+      try { localStorage.setItem('songwave.source', curSource); } catch (e) { /* ignore */ }
+      setStatus('音源切换为：' + (SOURCE_LABELS[curSource] || curSource), 2500);
+      if ($('search-input').value.trim()) doSearch();
+    };
+  });
 
   function renderResults(list) {
     resultsEl.innerHTML = '';
@@ -550,6 +563,198 @@
     themesEl.querySelectorAll('.theme').forEach((b) => b.classList.toggle('active', b.dataset.key === st.theme));
   }
 
+  // —— Wallpaper Engine 背景（模仿 dsh-plugin-wallpaper-engine） ——
+  const bgEl = $('we-bg');
+  const bgVideo = $('we-video');
+  const bgImg = $('we-img');
+  const bgScrim = $('we-scrim');
+  const weListEl = $('we-list');
+  const bg = { mode: 'viz', id: '', settings: {} };
+  let weItems = [];
+  let weDefaults = null;
+  let rotTimer = null;
+
+  function loadBgState() {
+    let s = null;
+    try { s = JSON.parse(localStorage.getItem('songwave.bg') || 'null'); } catch (e) { s = null; }
+    if (s) {
+      bg.mode = s.mode || 'viz';
+      bg.id = s.id || '';
+      bg.settings = s.settings || {};
+    }
+  }
+  function saveBgState() {
+    try { localStorage.setItem('songwave.bg', JSON.stringify({ mode: bg.mode, id: bg.id, settings: bg.settings })); } catch (e) { /* ignore */ }
+  }
+  function currentWeItem() {
+    return weItems.find((i) => i.id === bg.id) || null;
+  }
+  function applyBgSettings() {
+    const st = bg.settings || {};
+    const hasBg = !!bg.id && bg.mode !== 'viz';
+    if (bgEl) bgEl.classList.toggle('hidden', !hasBg);
+    document.body.classList.toggle('bg-we', bg.mode === 'we' && !!bg.id);
+    document.body.classList.toggle('bg-blend', bg.mode === 'blend' && !!bg.id);
+    const filt = 'brightness(' + (st.brightness || 100) + '%) contrast(' + (st.contrast || 100) + '%) saturate(' +
+      (st.saturate == null ? 100 : st.saturate) + '%)' + (st.blur > 0 ? ' blur(' + st.blur + 'px)' : '');
+    [bgVideo, bgImg].forEach((el) => {
+      if (!el) return;
+      el.style.filter = filt;
+      el.style.objectFit = st.objectFit || 'cover';
+    });
+    if (bgEl) bgEl.classList.toggle('flip', !!st.flip);
+    if (bgScrim) bgScrim.style.opacity = String(st.scrim == null ? 0.1 : st.scrim);
+    const vizOp = st.vizOpacity == null ? 0.85 : st.vizOpacity;
+    if (document.documentElement && document.documentElement.style && document.documentElement.style.setProperty) {
+      document.documentElement.style.setProperty('--viz-opacity', String(vizOp));
+    }
+    try { if (bgVideo) bgVideo.playbackRate = Number(st.playbackRate) || 1; } catch (e) { /* ignore */ }
+    const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+    const txt = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+    set('bg-scrim', st.scrim == null ? 0.1 : st.scrim); txt('v-scrim', Math.round((st.scrim == null ? 0.1 : st.scrim) * 100) + '%');
+    set('bg-blur', st.blur || 0); txt('v-blur', (st.blur || 0) + 'px');
+    set('bg-bright', st.brightness || 100); txt('v-bright2', (st.brightness || 100) + '%');
+    set('bg-contrast', st.contrast || 100); txt('v-contrast', (st.contrast || 100) + '%');
+    set('bg-saturate', st.saturate == null ? 100 : st.saturate); txt('v-saturate', (st.saturate == null ? 100 : st.saturate) + '%');
+    set('bg-vizop', vizOp); txt('v-vizop', Math.round(vizOp * 100) + '%');
+    set('bg-rate', st.playbackRate || 1); txt('v-rate', Number(st.playbackRate || 1).toFixed(2) + 'x');
+    set('bg-rot', st.rotationInterval || 30); txt('v-rot', (st.rotationInterval || 30) + 's');
+    const flipEl = $('bg-flip'); if (flipEl) flipEl.checked = !!st.flip;
+    const rotEl = $('bg-rotate'); if (rotEl) rotEl.checked = !!st.rotationEnabled;
+    document.querySelectorAll('#bg-modes .mode').forEach((b) => b.classList.toggle('active', b.dataset.bgmode === bg.mode));
+  }
+  function applyBackgroundSource() {
+    if (!bgVideo || !bgImg) return;
+    const it = currentWeItem();
+    if (!it || bg.mode === 'viz') {
+      try { bgVideo.pause(); } catch (e) { /* ignore */ }
+      return;
+    }
+    if (it.renderable === 'video' && it.video) {
+      bgVideo.src = toFileUrl(it.video);
+      bgVideo.classList.remove('hidden');
+      bgImg.classList.add('hidden');
+      bgVideo.muted = true;
+      if (typeof bgVideo.play === 'function') {
+        try {
+          const p = bgVideo.play();
+          if (p && p.catch) p.catch(() => { /* 自动播放被拒：忽略 */ });
+        } catch (e) { /* ignore */ }
+      }
+    } else if (it.preview) {
+      bgImg.src = toFileUrl(it.preview);
+      bgImg.classList.remove('hidden');
+      bgVideo.classList.add('hidden');
+      try { bgVideo.pause(); } catch (e) { /* ignore */ }
+    }
+  }
+  function renderWeList() {
+    if (!weListEl) return;
+    weListEl.innerHTML = '';
+    if (!weItems.length) {
+      weListEl.innerHTML = '<div class="we-empty">未发现 Wallpaper Engine 壁纸（需安装 Steam 版 WE）</div>';
+      return;
+    }
+    weItems.forEach((it) => {
+      const row = document.createElement('div');
+      row.className = 'we-item' + (it.id === bg.id ? ' active' : '');
+      row.innerHTML =
+        '<img src="' + esc(it.preview ? toFileUrl(it.preview) : '') + '" alt="">' +
+        '<div class="we-meta"><div class="we-title">' + esc(it.title) + '</div>' +
+        '<div class="we-sub">' + esc(it.renderable === 'video' ? '视频' : '场景/图片') +
+        (it.previewAnimated ? ' · 动图' : '') + '</div></div>';
+      row.onclick = () => {
+        bg.id = it.id;
+        if (bg.mode === 'viz') bg.mode = 'blend';
+        saveBgState();
+        renderWeList();
+        applyBackgroundSource();
+        applyBgSettings();
+        setStatus('背景已切换：' + it.title, 2500);
+      };
+      weListEl.appendChild(row);
+    });
+  }
+  function restartRotation() {
+    if (rotTimer) { clearInterval(rotTimer); rotTimer = null; }
+    const st = bg.settings || {};
+    if (!st.rotationEnabled || weItems.length < 2) return;
+    const secs = Math.max(5, Number(st.rotationInterval) || 30);
+    rotTimer = setInterval(() => {
+      const idx = weItems.findIndex((i) => i.id === bg.id);
+      const next = weItems[(idx + 1 + weItems.length) % weItems.length];
+      if (next) {
+        bg.id = next.id;
+        saveBgState();
+        renderWeList();
+        applyBackgroundSource();
+      }
+    }, secs * 1000);
+  }
+  async function loadWeList(force) {
+    if (!window.songwave.weList || !weListEl) return;
+    let r = null;
+    try { r = await window.songwave.weList(force); } catch (e) { r = null; }
+    if (!r || !r.ok) {
+      weListEl.innerHTML = '<div class="we-empty">壁纸库扫描失败' + (r && r.error ? '：' + esc(r.error) : '') + '</div>';
+      return;
+    }
+    weDefaults = r.defaults || {};
+    weItems = (r.items || []).filter((i) => i.renderable === 'video' || i.renderable === 'image');
+    bg.settings = Object.assign({}, weDefaults, bg.settings || {});
+    if (!bg.id && weItems.length) bg.id = (weItems.find((i) => i.renderable === 'video') || weItems[0]).id;
+    renderWeList();
+    applyBackgroundSource();
+    applyBgSettings();
+    restartRotation();
+  }
+  function bindBackgroundControls() {
+    document.querySelectorAll('#bg-modes .mode').forEach((b) => {
+      b.onclick = () => {
+        bg.mode = b.dataset.bgmode;
+        saveBgState();
+        applyBackgroundSource();
+        applyBgSettings();
+        setStatus(bg.mode === 'viz' ? '背景：仅可视化' : (bg.mode === 'we' ? '背景：仅壁纸' : '背景：壁纸 + 可视化叠加'), 2500);
+      };
+    });
+    const bind = (id, key, fmt) => {
+      const el = $(id);
+      if (!el) return;
+      const upd = () => {
+        const v = el.type === 'checkbox' ? el.checked : Number(el.value);
+        bg.settings[key] = v;
+        if (fmt) fmt(v);
+        saveBgState();
+        applyBgSettings();
+        if (key === 'rotationEnabled' || key === 'rotationInterval') restartRotation();
+        if (key === 'playbackRate' && bgVideo) { try { bgVideo.playbackRate = Number(v) || 1; } catch (e) { /* ignore */ } }
+      };
+      el.addEventListener('input', upd);
+      el.addEventListener('change', upd);
+    };
+    bind('bg-scrim', 'scrim', (v) => { const e = $('v-scrim'); if (e) e.textContent = Math.round(v * 100) + '%'; });
+    bind('bg-blur', 'blur', (v) => { const e = $('v-blur'); if (e) e.textContent = v + 'px'; });
+    bind('bg-bright', 'brightness', (v) => { const e = $('v-bright2'); if (e) e.textContent = v + '%'; });
+    bind('bg-contrast', 'contrast', (v) => { const e = $('v-contrast'); if (e) e.textContent = v + '%'; });
+    bind('bg-saturate', 'saturate', (v) => { const e = $('v-saturate'); if (e) e.textContent = v + '%'; });
+    bind('bg-vizop', 'vizOpacity', (v) => { const e = $('v-vizop'); if (e) e.textContent = Math.round(v * 100) + '%'; });
+    bind('bg-rate', 'playbackRate', (v) => { const e = $('v-rate'); if (e) e.textContent = Number(v).toFixed(2) + 'x'; });
+    bind('bg-rot', 'rotationInterval', (v) => { const e = $('v-rot'); if (e) e.textContent = v + 's'; });
+    bind('bg-flip', 'flip');
+    bind('bg-rotate', 'rotationEnabled');
+    const refresh = $('we-refresh');
+    if (refresh) refresh.onclick = () => loadWeList(true);
+    const fit = $('bg-fit');
+    if (fit) {
+      fit.onchange = () => { bg.settings.objectFit = fit.value; saveBgState(); applyBgSettings(); };
+    }
+    if (bgVideo) bgVideo.addEventListener('click', () => {
+      if (typeof bgVideo.play !== 'function') return;
+      try { bgVideo.play(); } catch (e) { /* ignore */ }
+    });
+  }
+
   // —— 壁纸模式（模仿 Wallpaper Engine） ——
   let wallpaperOn = false;
   let engineReady = false;          // 引擎初始化完成后才能吃主题/参数
@@ -588,6 +793,9 @@
       applyWallpaperParams(pendingWallpaperParams);
       pendingWallpaperParams = null;
     }
+    // 桌面层也显示同一张 WE 壁纸（与主窗口共享 localStorage）
+    loadBgState();
+    loadWeList();
     // 可选增强：壁纸层自己抢一次系统音频回环，拿到真实频谱；
     // 4 秒内没有电平就退回演示动画（避免“连上了但没声音”导致画面像死了）
     try {
@@ -662,8 +870,24 @@
   // —— 引导逻辑 ——
   function boot() {
     if (IS_WALLPAPER) { enterWallpaperLocal(); return; }
+    // 给 Song-Life 的粒子层打标记，便于背景模式下整体淡出（不改引擎源码）
+    try {
+      const canvases = document.querySelectorAll('canvas');
+      if (canvases && canvases[1] && canvases[1].classList) canvases[1].classList.add('songwave-rings');
+    } catch (e) { /* ignore */ }
     renderThemes();
     bindParams();
+    // 恢复上次选择的音源
+    try {
+      const s = localStorage.getItem('songwave.source');
+      if (s && SOURCE_LABELS[s]) {
+        curSource = s;
+        document.querySelectorAll('#src-chips .chip').forEach((x) => x.classList.toggle('active', x.dataset.src === curSource));
+      }
+    } catch (e) { /* ignore */ }
+    loadBgState();
+    bindBackgroundControls();
+    loadWeList();
     loadState();
     renderPlaylist();
     updateLxStatus();

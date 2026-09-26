@@ -69,16 +69,28 @@ const ids = {};
 let lastDownload = null;
 let lastWallpaper = null;
 let lastWallpaperParams = null;
+let lastSearchSource = null;
 const tabEls = [
   { dataset: { tab: 'search' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
   { dataset: { tab: 'list' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
 ];
+const chipEls = ['netease', 'qq', 'kugou', 'kuwo', 'migu'].map((s) => ({
+  dataset: { src: s },
+  classList: { set: new Set(s === 'netease' ? ['active'] : []), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { const on = f === undefined ? !this.set.has(c) : !!f; if (on) this.set.add(c); else this.set.delete(c); return on; }, contains(c) { return this.set.has(c); } },
+  onclick: null,
+}));
 const doc = {
   readyState: 'complete',
   _listeners: {},
+  body: makeEl('body'),
+  documentElement: makeEl('html'),
   getElementById(id) { return ids[id] || (ids[id] = makeEl('div')); },
   createElement(tag) { return makeEl(tag); },
-  querySelectorAll(sel) { return sel === '.tab' ? tabEls : []; },
+  querySelectorAll(sel) {
+    if (sel === '.tab') return tabEls;
+    if (sel === '#src-chips .chip') return chipEls;
+    return [];
+  },
   addEventListener(type, fn) { this._listeners[type] = fn; },
 };
 
@@ -105,7 +117,8 @@ const sandbox = {
       onMaximizeChange() {},
     },
     songwave: {
-      search: async (kw) => {
+      search: async (kw, src) => {
+        lastSearchSource = src || 'netease';
         if (!kw) return { ok: false, error: '空' };
         return { ok: true, data: [{ id: 1, name: '晴天', artist: '周杰伦', album: '叶惠美', cover: 'http://c/p.jpg', durationMs: 269000, source: 'netease' }] };
       },
@@ -122,6 +135,15 @@ const sandbox = {
       pushWallpaperParams: (p) => { lastWallpaperParams = p; return { ok: true }; },
       onWallpaperParams: () => {},
       onWallpaperState: () => {},
+      weList: async () => ({
+        ok: true,
+        libraries: ['D:\\steam'],
+        defaults: { scrim: 0.1, blur: 0, brightness: 100, contrast: 100, saturate: 100, objectFit: 'cover', flip: false, opacity: 1, playbackRate: 1, rotationEnabled: false, rotationInterval: 30 },
+        items: [
+          { id: '1111', title: '视频壁纸', type: 'video', source: 'workshop', renderable: 'video', video: 'D:\\steam\\w\\clip.mp4', preview: 'D:\\steam\\w\\preview.jpg', previewAnimated: false },
+          { id: '2222', title: '场景壁纸', type: 'scene', source: 'workshop', renderable: 'image', video: null, preview: 'D:\\steam\\w\\preview.gif', previewAnimated: true },
+        ],
+      }),
     },
     addEventListener() {},
     innerWidth: 1280,
@@ -251,6 +273,32 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     check('壁纸模式已开启', lastWallpaper === true);
     check('壁纸参数已推送（含主题）', !!(lastWallpaperParams && lastWallpaperParams.theme), JSON.stringify(lastWallpaperParams));
     check('壁纸开启状态提示', /壁纸模式已开启/.test(ids['status'].textContent), ids['status'].textContent);
+
+    // 14) Wallpaper Engine 背景（模仿 dsh-plugin-wallpaper-engine）
+    await flush();
+    check('壁纸列表已渲染 2 项', ids['we-list']._children.length === 2, String(ids['we-list']._children.length));
+    check('默认背景模式不是壁纸', doc.body.classList.contains('bg-we') === false);
+    ids['we-list']._children[0].onclick();
+    await flush();
+    check('选中视频壁纸后进入叠加模式', doc.body.classList.contains('bg-blend'));
+    check('背景层已显示', ids['we-bg'].classList.contains('hidden') === false);
+    check('视频背景已设置 src', /clip\.mp4$/.test(String(ids['we-video'].src || '')), String(ids['we-video'].src));
+    check('遮罩透明度已应用', Number(ids['we-scrim'].style.opacity) === 0.1, String(ids['we-scrim'].style.opacity));
+    ids['we-list']._children[1].onclick();
+    await flush();
+    check('动图预览壁纸切到 img 层', /preview\.gif$/.test(String(ids['we-img'].src || '')), String(ids['we-img'].src));
+    check('img 层已取消隐藏', ids['we-img'].classList.contains('hidden') === false);
+
+    // 15) 音源切换（网易 / QQ / 酷狗 / 酷我 / 咪咕）
+    check('音源 chips 已绑定点击', typeof chipEls[1].onclick === 'function');
+    check('默认搜索音源为网易', lastSearchSource === 'netease', String(lastSearchSource));
+    chipEls[1].onclick();          // 切到 QQ
+    await flush();
+    check('切到 QQ 后高亮', chipEls[1].classList.contains('active'));
+    check('切换后写入 localStorage', sandbox.localStorage._d['songwave.source'] === 'qq');
+    ids['search-input'].value = '周杰伦';
+    await ids['search-btn'].onclick();
+    check('搜索请求带上了所选音源', lastSearchSource === 'qq', String(lastSearchSource));
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
     process.exit(fail ? 1 : 0);

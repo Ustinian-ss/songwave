@@ -183,6 +183,77 @@ body.wallpaper #panel,
 body.wallpaper #status { display: none !important; }
 body.wallpaper #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; }
 
+/* ===== Wallpaper Engine 背景层 ===== */
+#we-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 1;              /* 在画布下面、UI 上面（UI 是 10+） */
+  overflow: hidden;
+  background: #05070d;
+}
+#we-bg.hidden { display: none; }
+#we-bg video, #we-bg img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity .3s ease;
+}
+#we-bg video.hidden, #we-bg img.hidden { display: none; }
+#we-bg.flip video, #we-bg.flip img { transform: scaleX(-1); }
+#we-scrim {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+/* 背景模式：viz=只用可视化 / we=只用壁纸 / blend=壁纸+可视化叠加 */
+#stage { z-index: 2; }                       /* 画布层：背景层(1) 之上、UI(10+) 之下 */
+body.bg-we #stage,
+body.bg-we .songwave-rings { opacity: 0; pointer-events: none; }
+body.bg-blend #stage,
+body.bg-blend .songwave-rings { opacity: var(--viz-opacity, .85); }
+
+/* 壁纸选择列表 */
+#we-list {
+  max-height: 190px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+#we-list::-webkit-scrollbar { width: 5px; }
+#we-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); border-radius: 3px; }
+.we-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: rgba(255,255,255,.04);
+  cursor: pointer;
+}
+.we-item:hover { background: rgba(255,255,255,.1); }
+.we-item.active { border-color: rgba(120,180,255,.55); background: rgba(120,180,255,.16); }
+.we-item img {
+  width: 64px; height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #0b0f18;
+  flex: none;
+}
+.we-item .we-meta { min-width: 0; flex: 1; }
+.we-item .we-title {
+  font-size: 12px; color: rgba(255,255,255,.86);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.we-item .we-sub { font-size: 10px; color: #7f8ea8; }
+.we-empty { font-size: 12px; color: #7f8ea8; padding: 6px 2px; }
+
 /* 侧栏底部：音源状态 */
 .lx-status {
   flex: none;
@@ -306,4 +377,41 @@ body.wallpaper #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; 
   #sidebar { width: min(300px, 86vw); }
   #now { width: 150px; }
   #volume { width: 56px; }
+}
+/* ===== 面板控件补充（UI 优化） ===== */
+.panel-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.btn.mini { padding: 0 8px; height: 22px; font-size: 11px; line-height: 1; }
+.row-inline { display: flex; gap: 14px; flex-wrap: wrap; }
+.row-inline label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: rgba(255,255,255,.72); cursor: pointer; }
+.param select {
+  width: 100%; height: 28px;
+  background: rgba(255,255,255,.06);
+  color: #dfe8f7;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 7px;
+  padding: 0 6px;
+}
+#bg-modes { gap: 4px; }
+#bg-modes .mode { flex: 1; height: 28px; font-size: 12px; padding: 0 4px; }
+#bg-modes .mode.active { background: rgba(120,180,255,.28); border-color: rgba(120,180,255,.6); color: #fff; }
+
+/* ===== 音源切换 chips ===== */
+.row.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.btn.chip {
+  flex: 1;
+  min-width: 52px;
+  height: 26px;
+  padding: 0 6px;
+  font-size: 12px;
+  border-radius: 13px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1);
+  color: rgba(255,255,255,.66);
+}
+.btn.chip:hover { background: rgba(255,255,255,.12); color: #fff; }
+.btn.chip.active {
+  background: rgba(120,180,255,.26);
+  border-color: rgba(120,180,255,.62);
+  color: #fff;
+  font-weight: 500;
 }

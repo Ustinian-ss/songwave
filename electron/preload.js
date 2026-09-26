@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('winCtl', {
 });
 
 contextBridge.exposeInMainWorld('songwave', {
-  search: (keywords) => ipcRenderer.invoke('songwave-search', keywords),
+  search: (keywords, source) => ipcRenderer.invoke('songwave-search', keywords, source),
   getPlayUrl: (id) => ipcRenderer.invoke('songwave-play-url', id),
   getLyric: (id) => ipcRenderer.invoke('songwave-lyric', id),
   openLocalFiles: () => ipcRenderer.invoke('open-local-files'),
@@ -33,4 +33,5 @@ contextBridge.exposeInMainWorld('songwave', {
   onWallpaperState: (cb) => {
     ipcRenderer.on('wallpaper-state', (_e, on) => cb(on));
   },
+  weList: (force) => ipcRenderer.invoke('songwave-we-list', force),
 });

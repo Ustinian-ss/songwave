@@ -1,8 +1,8 @@
 {
   "name": "songwave",
   "productName": "声浪 SongWave",
-  "version": "0.6.2",
-  "description": "声浪 · 音画一体的音乐播放器：在线搜索播放 + 本地音乐 + 歌词 + 下载 + Song-Life 可视化引擎 + 壁纸模式 + lx 用户音源",
+  "version": "0.7.0",
+  "description": "声浪 · 音画音乐播放器：多平台音源(网易/QQ/酷狗/酷我/咪咕) + Wallpaper Engine 壁纸背景 + 可视化 + 歌词 + 下载 + 壁纸/沉浸模式",
   "main": "electron/main.js",
   "author": "SongWave",
   "license": "MIT",
@@ -19,8 +19,10 @@
     "test:lx": "node scripts/test-lx-runtime.js",
     "test:download": "node scripts/test-download.js",
     "build:dir": "electron-builder --win --dir",
-    "test:all": "node scripts/test-renderer.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-lx-runtime.js",
-    "test:wallpaper": "node scripts/test-wallpaper.js"
+    "test:all": "node scripts/test-renderer.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-platforms.js && node scripts/test-wallpaper-engine.js && node scripts/test-lx-runtime.js",
+    "test:wallpaper": "node scripts/test-wallpaper.js",
+    "test:platforms": "node scripts/test-platforms.js",
+    "test:we": "node scripts/test-wallpaper-engine.js"
   },
   "devDependencies": {
     "electron": "^32.0.0",
