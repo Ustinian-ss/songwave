@@ -172,7 +172,7 @@ const sandbox = {
       charts: async (p) => {
         lastCharts = p;
         if (p.action === 'list') return { ok: true, lists: { netease: [{ id: '1', name: '热歌榜', platform: 'netease' }], qq: [], kugou: [] } };
-        if (p.action === 'recommend') return { ok: true, items: [{ id: '9', name: '夏日歌单', cover: 'http://c/x.jpg', trackCount: 20 }] };
+        if (p.action === 'recommend') return { ok: true, items: [{ id: '9', name: '夏日歌单', cover: 'http://c/x.jpg', trackCount: 20, playCount: 1234567 }, { id: '10', name: '夜间歌单', cover: 'http://c/y.jpg', trackCount: 12, playCount: 88 }] };
         return { ok: true, data: { name: '热歌榜', items: [{ id: '11', name: '晴天', artist: '周杰伦', source: 'netease' }, { id: '12', name: '夜曲', artist: '周杰伦', source: 'netease' }] } };
       },
       tray: async (p) => { lastTray = p; trayCalls.push(p); return { ok: true, on: p.action !== 'off' }; },
@@ -617,6 +617,12 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     doc.getElementById('btn-recommend').onclick();
     await flush(); await flush();
     check('推荐歌单已加载', /推荐歌单/.test(ids['chart-list']._children[0].textContent || ''), ids['chart-list']._children[0].textContent);
+    const grid = ids['chart-list']._children.find((c) => c.className && c.className.indexOf('pl-grid') >= 0);
+    check('推荐歌单渲染为网格容器', !!grid, String(ids['chart-list']._children.map((c)=>c.className).join(',')));
+    check('网格内有 2 张卡片', !!grid && grid._children.length === 2, String(grid && grid._children.length));
+    const card0 = grid && grid._children[0];
+    check('卡片含封面与名称', !!card0 && /pl-cover|pl-name/.test(card0._children.map((c)=>c.className).join(',')), card0 && card0._children.map((c)=>c.className).join(','));
+    check('播放量已格式化（123.5万）', /123.5万/.test(String(card0 && card0._children[0] && card0._children[0]._children.map((c)=>c.textContent).join(''))), '播放量文本: ' + (card0 && card0._children[0] && card0._children[0]._children.map((c)=>c.textContent).join(''))),
 
     // 31) 我的歌单（多歌单管理）
     railEls.find((x) => x.dataset.view === 'playlists').onclick();

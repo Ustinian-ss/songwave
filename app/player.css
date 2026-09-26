@@ -685,3 +685,80 @@ body.bg-blend .songwave-rings { opacity: var(--viz-opacity, .85); }
 .eq-band input[type="range"] { flex: 1; }
 .eq-band .eq-val { flex: 0 0 44px; text-align: right; font-size: 11px; color: #93a6c4; }
 .fx-hint { font-size: 11px; color: #7f8ea8; }
+
+
+/* ===== 推荐歌单：封面网格卡片（对齐 LX） ===== */
+.pl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+  padding: 4px 2px 8px;
+}
+.pl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 6px;
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid transparent;
+  transition: background .18s, border-color .18s, transform .18s;
+}
+.pl-card:hover { background: rgba(255, 255, 255, .1); border-color: rgba(120, 180, 255, .35); transform: translateY(-2px); }
+.pl-card .pl-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1b2740, #0d1424);
+}
+.pl-card .pl-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-card .pl-count {
+  position: absolute;
+  right: 4px; top: 4px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, .55);
+  backdrop-filter: blur(4px);
+}
+.pl-card .pl-play {
+  position: absolute;
+  right: 6px; bottom: 6px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(120, 180, 255, .85);
+  color: #06101f;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity .18s;
+}
+.pl-card:hover .pl-play { opacity: 1; }
+.pl-card .pl-name {
+  font-size: 11px;
+  color: rgba(255, 255, 255, .86);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 歌单/榜单详情头 */
+.pl-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .05);
+}
+.pl-head img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: #0b0f18; flex: none; }
+.pl-head .ph-meta { flex: 1; min-width: 0; }
+.pl-head .ph-name { font-size: 13px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-head .ph-sub { font-size: 11px; color: #8fa4c4; margin-top: 2px; }
+.pl-head .btn { flex: none; height: 26px; font-size: 11px; }

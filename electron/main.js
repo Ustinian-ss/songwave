@@ -881,7 +881,8 @@ ipcMain.handle('songwave-tray', (_e, payload) => {
 });
 
 // —— 排行榜 / 推荐歌单 ——
-const charts = require('../src/charts');
+// 注意：src/charts.js 导出的是工厂函数，必须调用 createCharts() 得到实例
+const charts = require('../src/charts').createCharts();
 ipcMain.handle('songwave-charts', async (_e, payload) => {
   const p = payload || {};
   try {

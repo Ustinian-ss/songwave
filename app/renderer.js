@@ -2085,6 +2085,59 @@
   // ================= v2.0.0：发现页（排行榜 / 推荐歌单） =================
   let curChartPlatform = 'netease';
 
+  /** 播放量格式化：12345 → 1.2万 */
+  function fmtCount(n) {
+    const v = Number(n) || 0;
+    if (v >= 100000000) return (v / 100000000).toFixed(1) + '亿';
+    if (v >= 10000) return (v / 10000).toFixed(1) + '万';
+    return String(v);
+  }
+
+  /** 渲染推荐歌单：封面网格卡片（对齐 LX 的展示方式） */
+  function renderRecommendGrid(items) {
+    const box = $('chart-list');
+    if (!box) return;
+    box.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'sh-head';
+    head.textContent = '推荐歌单 · ' + (items || []).length + ' 个';
+    box.appendChild(head);
+    const grid = document.createElement('div');
+    grid.className = 'pl-grid';
+    (items || []).forEach((p) => {
+      const card = document.createElement('div');
+      card.className = 'pl-card';
+      card.title = p.name + (p.trackCount ? ('（' + p.trackCount + ' 首）') : '');
+      const cover = document.createElement('div');
+      cover.className = 'pl-cover';
+      if (p.cover) {
+        const img = document.createElement('img');
+        img.src = p.cover;
+        img.loading = 'lazy';
+        img.alt = p.name;
+        cover.appendChild(img);
+      }
+      if (p.playCount) {
+        const c = document.createElement('span');
+        c.className = 'pl-count';
+        c.textContent = '▶ ' + fmtCount(p.playCount);
+        cover.appendChild(c);
+      }
+      const play = document.createElement('div');
+      play.className = 'pl-play';
+      play.textContent = '▶';
+      cover.appendChild(play);
+      const name = document.createElement('div');
+      name.className = 'pl-name';
+      name.textContent = p.name;
+      card.appendChild(cover);
+      card.appendChild(name);
+      card.onclick = () => loadChartSongs(p.platform || 'netease', p.id, p.name);
+      grid.appendChild(card);
+    });
+    box.appendChild(grid);
+  }
+
   function renderChartList(lists) {
     const box = $('chart-list');
     if (!box) return;
@@ -2119,19 +2172,35 @@
     box.innerHTML = '';
     if (!items || !items.length) { box.innerHTML = '<div class="we-empty">没有内容</div>'; return; }
     const head = document.createElement('div');
-    head.className = 'sh-head';
-    const title = document.createElement('span');
-    title.textContent = (label || '') + ' · ' + items.length + ' 首';
-    const playAll = document.createElement('button');
-    playAll.className = 'sh-clear';
-    playAll.textContent = '播放全部';
-    playAll.onclick = () => {
+    head.className = 'pl-head';
+    const coverUrl = (items[0] && items[0].cover) || '';
+    if (coverUrl) {
+      const img = document.createElement('img');
+      img.src = coverUrl;
+      img.alt = label || '';
+      head.appendChild(img);
+    }
+    const meta = document.createElement('div');
+    meta.className = 'ph-meta';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'ph-name';
+    nameEl.textContent = label || '歌单';
+    const subEl = document.createElement('div');
+    subEl.className = 'ph-sub';
+    subEl.textContent = items.length + ' 首' + (items[0] && items[0].artist ? (' · ' + items[0].artist) : '');
+    meta.appendChild(nameEl);
+    meta.appendChild(subEl);
+    head.appendChild(meta);
+    const title = document.createElement('button');
+    title.className = 'btn btn-primary';
+    title.textContent = '▶ 播放全部';
+    title.onclick = () => {
       playlist = playlist.concat(items);
       current = playlist.length - items.length;
       renderPlaylist(); playCurrent(); switchTab('list');
       setStatus('已加入 ' + items.length + ' 首并开始播放', 3000);
     };
-    head.appendChild(title); head.appendChild(playAll);
+    head.appendChild(title);
     box.appendChild(head);
     items.forEach((it, i) => {
       const row = document.createElement('div');
@@ -2161,8 +2230,11 @@
     if (!window.songwave.charts) return;
     const box = $('chart-list');
     if (box) box.innerHTML = '<div class="we-empty">正在获取推荐歌单…</div>';
-    const r = await window.songwave.charts({ action: 'recommend', limit: 12 });
+    const r = await window.songwave.charts({ action: 'recommend', limit: 24 });
     if (!r || !r.ok) { if (box) box.innerHTML = '<div class="we-empty">推荐获取失败</div>'; return; }
+    renderRecommendGrid(r.items || []);
+    setStatus('推荐歌单已更新（' + (r.items || []).length + ' 个）', 2000);
+    return;
     box.innerHTML = '';
     const head = document.createElement('div');
     head.className = 'sh-head';
