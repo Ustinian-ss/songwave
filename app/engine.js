@@ -50,6 +50,7 @@
   const state = {
     alpha: 0, audioOn: false, audioLevel: 0, bass: 0, mid: 0, high: 0,
     beat: 0, time: 0, hue: THEMES.deepsea.hue, _lastBeat: 0,
+    silentFor: 0,   // 连续无信号时长（秒）：超过阈值自动回演示动画，避免地形冻住
   };
 
   const rings = [];
@@ -116,13 +117,14 @@
     const maxH = H * 0.42 * P.height;
     for (let i = 0; i < photons.length; i++) {
       const p = photons[i];
-      const te = state.audioOn ? bandEnergy(p.r) : demoEnergy(p.r, state.time * 0.6);
+      const dem = useDemo();
+      const te = dem ? demoEnergy(p.r, state.time * 0.6) : bandEnergy(p.r);
       // 帧率无关平滑：每帧系数换算为 pow(base, dt)（dt=1 表示 60fps 一帧）
       const respK = 1 - Math.pow(1 - P.response, dt);
       p.energy += (te - p.energy) * respK;
       const en = p.energy;
       p.flash *= Math.pow(0.85, dt);
-      if (state.audioOn) {
+      if (!dem) {
         if (state.beat > 0.3) p.flash = Math.max(p.flash, state.beat);
       } else {
         const db = Math.pow(Math.max(0, Math.sin(state.time * 0.1)), 4);
@@ -197,7 +199,8 @@
   }
 
   function drawSpectrum() {
-    if (!freqData || state.audioLevel < 0.02) return;
+    if (!freqData) return;
+    const demSpec = useDemo();   // 无信号时用演示频谱，保持画面动起来
     // 柱数随屏宽自适应：小屏 48 柱过密
     const bars = Math.max(24, Math.min(48, Math.floor(W / 22)));
     const totalW = W * 0.7;
@@ -231,7 +234,9 @@
     rctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < bars; i++) {
       const idx = Math.floor(Math.pow(i / bars, 1.5) * freqData.length * 0.6);
-      const v = freqData[idx] / 255;
+      const v = demSpec
+        ? demoEnergy(i / Math.max(1, bars - 1), state.time * 0.6)
+        : freqData[idx] / 255;
       const bh = Math.max(2, v * maxH + state.bass * 6);
       const x = x0 + i * bw;
       const w = bw * 0.62;
@@ -307,6 +312,9 @@
     rctx.globalCompositeOperation = 'source-over';
   }
 
+
+  /** 是否走演示动画：没有音频源，或有源但连续静音 */
+  function useDemo() { return !state.audioOn || state.silentFor > 2.5; }
 
   function theme() { const t = THEMES[P.theme] || THEMES.deepsea; return { name: t.name, hue: (t.hue + (P.hueShift || 0) + 360) % 360, sat: t.sat, light: t.light }; }
 
@@ -809,6 +817,9 @@ ctx.globalCompositeOperation = 'source-over';
       addRing(W / 2, H / 2, state.bass);
     }
     state.beat = Math.max(0, state.beat - 0.06 * dt);
+    // 无信号计时：连续静音 > 2.5s 视为"没有声音在放"，改用演示动画（防止画面像死了一样）
+    if (state.audioOn && state.audioLevel < 0.01) state.silentFor += dt;
+    else state.silentFor = 0;
   }
 
   // ============================================================
