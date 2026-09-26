@@ -70,6 +70,7 @@ let lastDownload = null;
 let lastWallpaper = null;
 let lastWallpaperParams = null;
 let lastSearchSource = null;
+let lastSrcAdd = null;
 const tabEls = [
   { dataset: { tab: 'search' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
   { dataset: { tab: 'list' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
@@ -77,6 +78,12 @@ const tabEls = [
 const chipEls = ['netease', 'qq', 'kugou', 'kuwo', 'migu'].map((s) => ({
   dataset: { src: s },
   classList: { set: new Set(s === 'netease' ? ['active'] : []), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { const on = f === undefined ? !this.set.has(c) : !!f; if (on) this.set.add(c); else this.set.delete(c); return on; }, contains(c) { return this.set.has(c); } },
+  onclick: null,
+}));
+const railEls = ['search', 'list', 'lyric', 'panel'].map((v) => ({
+  id: 'rail-' + v,
+  dataset: { view: v },
+  classList: { set: new Set(v === 'search' ? ['active'] : []), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { const on = f === undefined ? !this.set.has(c) : !!f; if (on) this.set.add(c); else this.set.delete(c); return on; }, contains(c) { return this.set.has(c); } },
   onclick: null,
 }));
 const doc = {
@@ -89,6 +96,7 @@ const doc = {
   querySelectorAll(sel) {
     if (sel === '.tab') return tabEls;
     if (sel === '#src-chips .chip') return chipEls;
+    if (sel === '#rail .rail-btn') return railEls;
     return [];
   },
   addEventListener(type, fn) { this._listeners[type] = fn; },
@@ -135,6 +143,18 @@ const sandbox = {
       pushWallpaperParams: (p) => { lastWallpaperParams = p; return { ok: true }; },
       onWallpaperParams: () => {},
       onWallpaperState: () => {},
+      srcList: async () => ({
+        ok: true,
+        items: [{ id: 'a1', name: 'flower-v1.0.0', url: 'https://src.example/flower.js', enabled: true, sourceKeys: ['kw', 'tx'], ok: true }],
+        state: {
+          loading: false, loaded: true, name: 'flower-v1.0.0', sourceKeys: ['kw', 'tx'], searchSources: [], error: '',
+          items: [{ id: 'a1', name: 'flower-v1.0.0', ok: true, sourceKeys: ['kw', 'tx'], searchSources: [], canSearch: false }],
+        },
+      }),
+      srcAdd: async (p) => { lastSrcAdd = p; return { ok: true, entry: { id: 'a2', name: 'new-source', ok: true } }; },
+      srcToggle: async () => ({ ok: true, items: [], state: { loaded: true, sourceKeys: [] } }),
+      srcRemove: async () => ({ ok: true, items: [], state: { loaded: false, sourceKeys: [] } }),
+      srcPick: async () => ({ ok: false }),
       weList: async () => ({
         ok: true,
         libraries: ['D:\\steam'],
@@ -299,6 +319,24 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     ids['search-input'].value = '周杰伦';
     await ids['search-btn'].onclick();
     check('搜索请求带上了所选音源', lastSearchSource === 'qq', String(lastSearchSource));
+
+    // 16) 左侧功能栏（LX 风格）
+    check('功能栏按钮已绑定', typeof railEls[1].onclick === 'function');
+    railEls[1].onclick();                    // 点「播放列表」
+    check('点功能栏切到播放列表视图', ids['side-list'].classList.contains('hidden') === false);
+    check('功能栏高亮跟随', railEls[1].classList.contains('active') && !railEls[0].classList.contains('active'));
+
+    // 17) 音源管理（粘贴链接导入）
+    await flush();
+    check('音源列表已渲染', ids['src-list']._children.length === 1, String(ids['src-list']._children.length));
+    check('音源条目显示能力与“仅取链”', /kw, tx/.test(ids['src-list']._children[0].innerHTML) && /仅取链/.test(ids['src-list']._children[0].innerHTML));
+    const srcUrlInput = doc.getElementById('src-url');
+    srcUrlInput.value = 'https://src.example/new.js';
+    await ids['src-add-btn'].onclick();
+    await flush();
+    check('导入时带上了链接', (lastSrcAdd || {}).url === 'https://src.example/new.js', JSON.stringify(lastSrcAdd));
+    check('导入成功提示', /音源导入成功/.test(ids['status'].textContent), ids['status'].textContent);
+    check('导入后清空输入框', srcUrlInput.value === '');
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
     process.exit(fail ? 1 : 0);

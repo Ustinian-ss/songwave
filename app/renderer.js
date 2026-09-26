@@ -867,6 +867,113 @@
     };
   }
 
+  // —— 左侧功能栏（LX 风格竖向导航） ——
+  document.querySelectorAll('#rail .rail-btn').forEach((b) => {
+    if (b.id === 'btn-wallpaper') return;   // 壁纸按钮有独立逻辑
+    b.onclick = () => {
+      const view = b.dataset.view;
+      document.querySelectorAll('#rail .rail-btn').forEach((x) => x.classList.toggle('active', x === b));
+      if (view === 'search' || view === 'list' || view === 'lyric') {
+        switchTab(view);
+      } else if (view === 'panel') {
+        const p = $('panel');
+        if (p) p.classList.toggle('open');
+        b.classList.toggle('active', !!(p && p.classList.contains('open')));
+      }
+    };
+  });
+
+  // —— 音源管理（lx 自定义源：粘贴链接导入） ——
+  const srcListEl = $('src-list');
+  const srcHintEl = $('src-hint');
+
+  function renderSrcItems(items, state) {
+    if (!srcListEl) return;
+    srcListEl.innerHTML = '';
+    if (!items || !items.length) {
+      srcListEl.innerHTML = '<div class="we-empty">还没有音源脚本，把 lx 音源链接粘到上面点「导入」</div>';
+      if (srcHintEl) srcHintEl.textContent = '未装入音源时，QQ/酷狗/酷我/咪咕 无法播放';
+      return;
+    }
+    items.forEach((it) => {
+      const st = ((state && state.items) || []).find((x) => x.id === it.id) || {};
+      const row = document.createElement('div');
+      row.className = 'src-item ' + (st.ok ? 'ok' : 'bad');
+      const caps = st.sourceKeys || it.sourceKeys || [];
+      row.innerHTML =
+        '<input type="checkbox" class="src-toggle"' + (it.enabled ? ' checked' : '') + '>' +
+        '<div class="src-meta"><div class="src-name">' + esc(it.name) + '</div>' +
+        '<div class="src-sub">' + esc(st.ok
+          ? ('支持：' + (caps.join(', ') || '—') + (st.canSearch ? ' · 可搜索' : ' · 仅取链'))
+          : ('⚠ ' + (st.error || it.error || '不可用'))) + '</div></div>' +
+        '<button class="src-del" title="删除">✕</button>';
+      const cb = row.querySelector('.src-toggle');
+      if (cb) cb.onchange = () => toggleSrc(it.id, cb.checked);
+      const del = row.querySelector('.src-del');
+      if (del) del.onclick = () => removeSrc(it.id);
+      srcListEl.appendChild(row);
+    });
+    if (srcHintEl && state && state.loaded) {
+      srcHintEl.textContent = '已就绪平台：' + (state.sourceKeys.join(', ') || '—');
+    }
+  }
+  async function loadSrcList() {
+    if (!window.songwave.srcList || !srcListEl) return;
+    let r = null;
+    try { r = await window.songwave.srcList(); } catch (e) { r = null; }
+    if (!r || !r.ok) {
+      srcListEl.innerHTML = '<div class="we-empty">读取音源列表失败' + (r && r.error ? '：' + esc(r.error) : '') + '</div>';
+      return;
+    }
+    renderSrcItems(r.items, r.state);
+  }
+  async function addSrc() {
+    const input = $('src-url');
+    const url = input ? String(input.value || '').trim() : '';
+    if (!url) { setStatus('请先粘贴音源链接', 2500); return; }
+    if (!window.songwave.srcAdd) return;
+    setStatus('正在导入音源…', 0);
+    const r = await window.songwave.srcAdd({ url });
+    if (!r || !r.ok) { setStatus('导入失败：' + ((r && r.error) || '未知错误'), 7000); return; }
+    if (input) input.value = '';
+    setStatus('音源导入成功：' + r.entry.name + (r.entry.ok ? '' : '（探测失败：' + r.entry.error + '）'), 7000);
+    await loadSrcList();
+    updateLxStatus();
+  }
+  async function toggleSrc(id, enabled) {
+    if (!window.songwave.srcToggle) return;
+    const r = await window.songwave.srcToggle({ id, enabled });
+    if (!r || !r.ok) { setStatus('切换失败：' + ((r && r.error) || ''), 5000); return; }
+    renderSrcItems(r.items, r.state);
+    updateLxStatus();
+    setStatus(enabled ? '音源已启用' : '音源已停用', 2000);
+  }
+  async function removeSrc(id) {
+    if (!window.songwave.srcRemove) return;
+    const r = await window.songwave.srcRemove(id);
+    if (!r || !r.ok) { setStatus('删除失败：' + ((r && r.error) || ''), 5000); return; }
+    renderSrcItems(r.items, r.state);
+    updateLxStatus();
+    setStatus('音源已删除', 2000);
+  }
+  {
+    const addBtn = $('src-add-btn');
+    if (addBtn) addBtn.onclick = addSrc;
+    const pickBtn = $('src-pick');
+    if (pickBtn) {
+      pickBtn.onclick = async () => {
+        if (!window.songwave.srcPick) return;
+        const r = await window.songwave.srcPick();
+        if (!r || !r.ok) { if (r && r.error) setStatus('导入失败：' + r.error, 6000); return; }
+        setStatus('已导入：' + r.entry.name, 5000);
+        await loadSrcList();
+        updateLxStatus();
+      };
+    }
+    const refreshBtn = $('src-refresh');
+    if (refreshBtn) refreshBtn.onclick = loadSrcList;
+  }
+
   // —— 引导逻辑 ——
   function boot() {
     if (IS_WALLPAPER) { enterWallpaperLocal(); return; }
@@ -888,6 +995,7 @@
     loadBgState();
     bindBackgroundControls();
     loadWeList();
+    loadSrcList();
     loadState();
     renderPlaylist();
     updateLxStatus();

@@ -28,8 +28,16 @@
     </div>
     <div id="title">声浪 · SongWave</div>
     <div id="hint">左侧搜索在线音乐，或「本地音乐」导入文件</div>
-    <button class="btn" id="btn-wallpaper" title="壁纸/沉浸模式：可视化铺满屏幕（Esc 或 W 退出，桌面层模式用 Ctrl+Alt+W）">🖼 壁纸</button>
   </div>
+
+  <!-- 左侧功能栏（对齐 LX Music 的竖向导航） -->
+  <nav id="rail">
+    <button class="rail-btn active" data-view="search" title="搜索">🔍</button>
+    <button class="rail-btn" data-view="list" title="播放列表">☰</button>
+    <button class="rail-btn" data-view="lyric" title="歌词">♪</button>
+    <button class="rail-btn" id="btn-wallpaper" data-view="wallpaper" title="壁纸/沉浸模式（Esc 或 W 退出，桌面层 Ctrl+Alt+W）">🖼</button>
+    <button class="rail-btn" data-view="panel" title="设置 / 音源管理">⚙</button>
+  </nav>
 
   <!-- 左侧：搜索 / 播放列表 -->
   <aside id="sidebar">
@@ -98,6 +106,23 @@
       <button class="panel-close" id="panel-close">✕</button>
     </div>
     <div class="panel-body">
+      <!-- 音源管理（对齐 LX Music 的“自定义源”：粘贴链接导入） -->
+      <div class="panel-group">
+        <div class="panel-title">
+          <span>音源管理 · lx 自定义源</span>
+          <button class="btn mini" id="src-refresh" title="重新检测">↻</button>
+        </div>
+        <div class="src-add">
+          <input id="src-url" placeholder="粘贴音源链接（http/https 的 .js）" spellcheck="false">
+          <button class="btn btn-primary" id="src-add-btn">导入</button>
+        </div>
+        <div class="row src-tools">
+          <button class="btn" id="src-pick">从文件导入</button>
+          <span class="src-hint" id="src-hint">未装入音源时，QQ/酷狗/酷我/咪咕 无法播放</span>
+        </div>
+        <div id="src-list"><div class="we-empty">加载中…</div></div>
+      </div>
+
       <div class="panel-group">
         <div class="panel-title">色彩主题</div>
         <div id="themes" class="row"></div>

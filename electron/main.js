@@ -4,43 +4,95 @@ const path = require('path');
 
 const netease = require('../src/sources/netease');
 const lxSource = require('../src/sources/lx-source');
+const { createSourceManager } = require('../src/sources/source-manager');
 const { downloadFile } = require('../src/download');
 
 let win = null;
 let wallpaperWin = null;
 let wallpaperParams = null;
 
-// —— LX 用户音源（懒加载，可插拔；默认 flower.js，可用 SONGWAVE_LX_SCRIPT 指定） ——
+// —— lx 用户音源（对齐 LX Music：链接导入 / 本地导入 / 多音源并存 / 启用停用） ——
 const LX_SCRIPT = process.env.SONGWAVE_LX_SCRIPT || 'D:\\小程序\\lxmusic\\flower-v1.0.0.js';
 const LX_INIT_TIMEOUT = Number(process.env.SONGWAVE_LX_INIT_TIMEOUT) || 30000;
-let lxPromise = null;
-let lxState = { loading: false, loaded: false, name: '', sourceKeys: [], searchSources: [], error: '' };
-function getLx() {
-  if (!lxPromise) {
-    lxState.loading = true;
-    lxPromise = lxSource.createLxSource(LX_SCRIPT, {
-      name: path.basename(LX_SCRIPT),
+let srcMgr = null;
+let lxLoadPromise = null;
+let lxState = { loading: false, loaded: false, name: '', sourceKeys: [], searchSources: [], error: '', items: [] };
+
+function getSrcMgr() {
+  if (!srcMgr) {
+    srcMgr = createSourceManager({
+      dir: path.join(app.getPath('userData'), 'lx-sources'),
       initTimeoutMs: LX_INIT_TIMEOUT,
-    })
-      .then((src) => {
-        lxState = {
-          loading: false, loaded: true,
-          name: src.name, sourceKeys: src.sourceKeys, searchSources: src.searchSources,
-          error: '',
-        };
-        console.log('[songwave] lx 音源已加载:', src.name, '| 音源:', src.sourceKeys.join(','));
-        return src;
-      })
-      .catch((err) => {
-        lxState = {
-          loading: false, loaded: false, name: '', sourceKeys: [], searchSources: [],
-          error: err && err.message || String(err),
-        };
-        console.log('[songwave] lx 音源不可用:', lxState.error);
-        return null;
-      });
+    });
   }
-  return lxPromise;
+  return srcMgr;
+}
+
+/** 首次运行且没有任何音源时，把默认脚本（如果存在）自动导入一份 */
+async function ensureDefaultSource() {
+  const mgr = getSrcMgr();
+  if (mgr.list().length) return;
+  const fs = require('fs');
+  if (!fs.existsSync(LX_SCRIPT)) return;
+  try {
+    const e = await mgr.addFromFile(LX_SCRIPT);
+    console.log('[songwave] 已自动导入默认音源脚本:', e.name, e.ok ? '' : ('（探测失败：' + e.error + '）'));
+  } catch (e) {
+    console.log('[songwave] 默认音源导入失败:', e && e.message);
+  }
+}
+
+/** 加载所有启用音源（带缓存） */
+function getLxSources() {
+  if (!lxLoadPromise) {
+    lxState.loading = true;
+    lxLoadPromise = (async () => {
+      await ensureDefaultSource();
+      const loaded = await getSrcMgr().loadEnabled();
+      const okList = loaded.filter((x) => x.source);
+      const sourceKeys = [];
+      const searchSources = [];
+      okList.forEach((x) => {
+        x.source.sourceKeys.forEach((k) => { if (!sourceKeys.includes(k)) sourceKeys.push(k); });
+        x.source.searchSources.forEach((k) => { if (!searchSources.includes(k)) searchSources.push(k); });
+      });
+      lxState = {
+        loading: false,
+        loaded: okList.length > 0,
+        name: okList.map((x) => x.entry.name).join(' + '),
+        sourceKeys,
+        searchSources,
+        error: loaded.filter((x) => !x.source).map((x) => x.entry.name + '：' + (x.error || '加载失败')).join('；'),
+        items: loaded.map((x) => ({
+          id: x.entry.id, name: x.entry.name, ok: !!x.source,
+          error: x.source ? '' : (x.error || '加载失败'),
+          sourceKeys: x.source ? x.source.sourceKeys : (x.entry.sourceKeys || []),
+          searchSources: x.source ? x.source.searchSources : [],
+          canSearch: !!(x.source && x.source.searchSources.length),
+        })),
+      };
+      console.log('[songwave] lx 音源就绪:', lxState.name || '(无)', '| 平台:', sourceKeys.join(',') || '(无)');
+      return okList;
+    })();
+  }
+  return lxLoadPromise;
+}
+
+/** 重新加载（导入/启停后调用） */
+function reloadLx() {
+  lxLoadPromise = null;
+  lxState = { loading: true, loaded: false, name: '', sourceKeys: [], searchSources: [], error: '', items: [] };
+  return getLxSources();
+}
+
+/** 找到支持某平台取链的音源 */
+function findSourceFor(lxPlatform, action) {
+  return getLxSources().then((list) => {
+    for (const x of list) {
+      if (x.source.supports(lxPlatform, action)) return x.source;
+    }
+    return null;
+  });
 }
 
 function createWindow() {
@@ -136,6 +188,69 @@ function setupMaximizeEvents() {
 // —— 音源 IPC ——
 ipcMain.handle('songwave-lx-status', () => lxState);
 
+// 音源管理（对齐 LX Music 的“自定义源”：粘贴链接导入）
+ipcMain.handle('songwave-src-list', async () => {
+  try {
+    const mgr = getSrcMgr();
+    await getLxSources();               // 触发一次加载，保证 items 状态最新
+    return { ok: true, items: mgr.list(), state: lxState };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('songwave-src-add', async (_e, payload) => {
+  try {
+    const mgr = getSrcMgr();
+    const url = payload && payload.url ? String(payload.url).trim() : '';
+    if (!url) return { ok: false, error: '请填写音源链接' };
+    const entry = await mgr.addFromUrl(url, { name: payload && payload.name });
+    await reloadLx();
+    return { ok: true, entry, state: lxState };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('songwave-src-toggle', async (_e, payload) => {
+  try {
+    const mgr = getSrcMgr();
+    mgr.toggle(payload && payload.id, !!(payload && payload.enabled));
+    await reloadLx();
+    return { ok: true, items: mgr.list(), state: lxState };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('songwave-src-remove', async (_e, id) => {
+  try {
+    const mgr = getSrcMgr();
+    mgr.remove(id);
+    await reloadLx();
+    return { ok: true, items: mgr.list(), state: lxState };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle('songwave-src-pick', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: '选择 lx 音源脚本（.js）',
+    properties: ['openFile'],
+    filters: [{ name: '音源脚本', extensions: ['js'] }, { name: '所有文件', extensions: ['*'] }],
+  });
+  if (r.canceled || !r.filePaths.length) return { ok: false };
+  try {
+    const mgr = getSrcMgr();
+    const entry = await mgr.addFromFile(r.filePaths[0]);
+    await reloadLx();
+    return { ok: true, entry, items: mgr.list(), state: lxState };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
 // 平台音源（QQ/酷狗/酷我/咪咕）：搜索走平台接口，取链交给 lx 脚本
 const platforms = require('../src/sources/platforms');
 const PLATFORM_MAP = {};
@@ -154,9 +269,12 @@ ipcMain.handle('songwave-search', async (_e, keywords, sourceKey) => {
   const kw = String(keywords).trim();
   const key = sourceKey || 'netease';
   try {
-    const lxTask = getLx().then((src) => {
-      // 只在 lx 脚本真的声明了搜索动作时合并（flower/sixyin 是取链型，通常为空）
-      return src ? src.search(kw, 15) : [];
+    const lxTask = getLxSources().then(async (list) => {
+      // 只有声明了 search 动作的 lx 脚本才参与搜索（取链型脚本会返回空数组）
+      const searchers = list.filter((x) => x.source.searchSources.length);
+      if (!searchers.length) return [];
+      const groups = await Promise.all(searchers.map((x) => x.source.search(kw, 10).catch(() => [])));
+      return [].concat(...groups);
     });
     if (key === 'netease' || key === 'auto') {
       const [neteaseList, lxList] = await Promise.all([netease.search(kw), lxTask]);
@@ -175,10 +293,10 @@ ipcMain.handle('songwave-play-url', async (_e, payload) => {
   try {
     // 带 lxSource 的条目（QQ/酷狗/酷我/咪咕）统一走 lx 用户音源脚本取链
     if (payload && payload.lxSource) {
-      const src = await getLx();
-      if (!src) return { ok: false, error: 'lx 音源未加载（' + (lxState.error || '') + '）' };
-      if (!src.supports(payload.lxSource, 'musicUrl')) {
-        return { ok: false, error: '当前 lx 脚本不支持该平台取链：' + payload.lxSource };
+      const src = await findSourceFor(payload.lxSource, 'musicUrl');
+      if (!src) {
+        const have = lxState.sourceKeys.length ? ('已装入的音源支持：' + lxState.sourceKeys.join(', ')) : '尚未导入可用音源';
+        return { ok: false, error: '没有能取链 ' + payload.lxSource + ' 的音源脚本（请在「音源管理」里粘贴音源链接）。' + have };
       }
       const url = await src.getPlayUrl(payload.lxSource, payload, payload.quality);
       return { ok: true, url, via: 'lx:' + payload.lxSource };
@@ -193,9 +311,9 @@ ipcMain.handle('songwave-play-url', async (_e, payload) => {
 
 ipcMain.handle('songwave-lyric', async (_e, payload) => {
   try {
-    if (payload && payload.source === 'lx') {
-      const src = await getLx();
-      if (!src) return { ok: false, error: 'lx 音源未加载' };
+    if (payload && payload.lxSource) {
+      const src = await findSourceFor(payload.lxSource, 'lyric');
+      if (!src) return { ok: false, error: '没有支持歌词的 lx 音源' };
       const lyric = await src.getLyric(payload.lxSource, payload.id);
       return { ok: true, data: lyric };
     }

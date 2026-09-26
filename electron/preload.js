@@ -34,4 +34,9 @@ contextBridge.exposeInMainWorld('songwave', {
     ipcRenderer.on('wallpaper-state', (_e, on) => cb(on));
   },
   weList: (force) => ipcRenderer.invoke('songwave-we-list', force),
+  srcList: () => ipcRenderer.invoke('songwave-src-list'),
+  srcAdd: (payload) => ipcRenderer.invoke('songwave-src-add', payload),
+  srcToggle: (payload) => ipcRenderer.invoke('songwave-src-toggle', payload),
+  srcRemove: (id) => ipcRenderer.invoke('songwave-src-remove', id),
+  srcPick: () => ipcRenderer.invoke('songwave-src-pick'),
 });
