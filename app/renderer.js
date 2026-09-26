@@ -1707,6 +1707,24 @@
     if (probeBtn) probeBtn.onclick = probeSources;
     const impBtn = $('cache-import');
     if (impBtn) impBtn.onclick = importUrlCache;
+    const recBtn = $('src-recommend');
+    if (recBtn) recBtn.onclick = importRecommendedSources;
+  }
+
+  /** 一键导入推荐音源（社区脚本；实测全豆要音源能取到完整版酷我/网易云地址） */
+  async function importRecommendedSources() {
+    if (!window.songwave.srcImportRecommended) return;
+    const hint = $('src-probe-hint');
+    if (hint) hint.textContent = '正在下载推荐音源（首次会稍慢）…';
+    setStatus('正在导入推荐音源…', 5000);
+    let r = null;
+    try { r = await window.songwave.srcImportRecommended(); }
+    catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (!r || !r.ok) { if (hint) hint.textContent = '导入失败：' + ((r && r.error) || '未知错误'); return; }
+    const lines = (r.results || []).map((x) => (x.ok ? ('✅ ' + x.name + '（' + x.from + '，' + Math.round((x.bytes || 0) / 1024) + 'KB）') : ('❌ ' + x.name + '：' + (x.error || ''))));
+    if (hint) hint.innerHTML = lines.map((s) => '<div>' + esc(s) + '</div>').join('');
+    setStatus('推荐音源导入完成：' + r.imported + '/' + (r.results || []).length + ' 个成功，正在后台加载…', 8000);
+    setTimeout(() => { if (typeof renderSources === 'function') { try { renderSources(); } catch (e) { /* ignore */ } } }, 2500);
   }
 
   /**

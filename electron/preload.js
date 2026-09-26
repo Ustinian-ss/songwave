@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('songwave', {
   srcProbe: (payload) => ipcRenderer.invoke('songwave-src-probe', payload),
   cacheImportOthers: () => ipcRenderer.invoke('songwave-cache-import-others'),
   cacheStats: () => ipcRenderer.invoke('songwave-cache-stats'),
+  srcImportRecommended: () => ipcRenderer.invoke('songwave-src-import-recommended'),
   altSources: (payload) => ipcRenderer.invoke('songwave-alt-sources', payload),
   audioPresets: () => ipcRenderer.invoke('songwave-audio-presets'),
   // —— v2.0.0：桌面歌词浮窗 / 托盘 / 榜单 / 简繁 / 批量下载 ——

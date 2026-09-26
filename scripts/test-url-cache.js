@@ -79,6 +79,22 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
     const cachePos = mainSrc.indexOf('getUrlCache().get(payload.source');
     const extPos = mainSrc.indexOf("resolveViaExtSources(payload.extKey, 'musicUrl'");
     check('缓存优先于音源脚本（顺序正确）', cachePos > 0 && extPos > cachePos, cachePos + ' vs ' + extPos);
+
+    // —— 缓存里的"试听片段"不能挡住能取完整版的音源脚本 ——
+    check('试听缓存只作兜底（不直接返回）', mainSrc.indexOf('cachedPreview') >= 0 && mainSrc.indexOf('cachedPreview = {') >= 0);
+    check('全部失败才退回试听缓存', mainSrc.indexOf("via: 'cache(试听兜底)'") >= 0);
+
+    // —— 推荐音源一键导入 ——
+    const rec = require('../src/recommended-sources');
+    check('推荐清单非空且首选为全豆要（实测可播完整版酷我 VIP 歌）',
+      rec.list.length >= 3 && rec.list[0].id === 'qdy', rec.list.map((x) => x.id).join(','));
+    check('推荐链接镜像优先 + 原始地址回退',
+      rec.list.every((x) => /ghproxy/.test(x.url) && /raw\.githubusercontent\.com/.test(x.fallback)));
+    check('主进程：导入失败会回退原始地址', mainSrc.indexOf('for (const u of [item.url, item.fallback]') >= 0);
+    check('主进程：导入走 addFromScriptText（与粘贴链接等价）', mainSrc.indexOf('mgr.addFromScriptText(text, { name: item.name, url: u') >= 0);
+    check('preload 暴露推荐导入', read('electron/preload.js').indexOf('srcImportRecommended') >= 0);
+    check('界面按钮已接线（推荐音源 + 已解析地址）',
+      html.indexOf('id="src-recommend"') >= 0 && renderer.indexOf('importRecommendedSources') >= 0);
   } catch (e) {
     console.error('测试运行异常:', e);
     fail++;
