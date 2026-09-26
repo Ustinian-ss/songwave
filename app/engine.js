@@ -44,6 +44,11 @@
     barAlpha: 1.0,      // 材质整体透明度倍率（0.2~2）
     barGlow: 1.0,       // 高光/发光强度倍率（0~2）
     barRound: 2,        // 柱体圆角 px
+    bottomPad: 96,      // 底部留白 px：给播放条/任务栏让位，避免"律动贴到屏幕最底"
+    flipY: 1,           // 地形朝向：1 = 正立（柱子立在地面上向上生长，与 2D 保底路径一致）
+                        //          0 = 旧版倒挂观感（WebGL 路径 y 轴被 FBO 二次翻转，会垂到屏幕底）
+    silenceSec: 6,      // 连续无信号多少秒后才回演示动画（太短会在歌曲安静段落误判）
+    silenceThreshold: 0.008,  // 低于该电平视为"没声音"（配合 silenceSec 判定静音）
     hint: '点击画面有光环 · 点「系统音频」检测正在播放的音乐',
   };
 
@@ -51,6 +56,7 @@
     alpha: 0, audioOn: false, audioLevel: 0, bass: 0, mid: 0, high: 0,
     beat: 0, time: 0, hue: THEMES.deepsea.hue, _lastBeat: 0,
     silentFor: 0,   // 连续无信号时长（秒）：超过阈值自动回演示动画，避免地形冻住
+    peakLevel: 0,   // 电平峰值保持（用于判断"真的没声音"而不是安静段落
   };
 
   const rings = [];
@@ -114,7 +120,10 @@
     if (!photons.length) initPhotons();
     const t = theme();
     const groundW = W * 0.46;
-    const maxH = H * 0.42 * P.height;
+    // 整个音域地形抬到播放条之上：底部留白同时压缩地面纵深与柱高，
+    // 否则最近一排柱子（H*0.74）与底部频谱会一起贴到屏幕最下沿
+    const stageH = Math.max(240, H - (Number(P.bottomPad) || 0));
+    const maxH = stageH * 0.42 * P.height;
     for (let i = 0; i < photons.length; i++) {
       const p = photons[i];
       const dem = useDemo();
@@ -152,8 +161,8 @@
       // 3D 地面透视（摄像机斜上方俯视，远边缩小）
       const persp = 1 / (1 + (p.nz + 1) * P.tilt);
       const sx = W / 2 + p.nx * groundW * persp;
-      const gz = (p.nz + 1) * 0.5 * H * 0.5;
-      const sy = H * 0.74 - gz - p.height * persp;
+      const gz = (p.nz + 1) * 0.5 * stageH * 0.5;
+      const sy = stageH * 0.71 - gz - p.height * persp;
       p.depth = persp;
       p.x = sx;
       p.y = sy;
@@ -205,8 +214,9 @@
     const bars = Math.max(24, Math.min(48, Math.floor(W / 22)));
     const totalW = W * 0.7;
     const bw = totalW / bars;
-    const maxH = H * 0.2;
-    const baseY = H - 10;
+    const usableH = Math.max(120, H - (Number(P.bottomPad) || 0));
+    const maxH = usableH * 0.2;
+    const baseY = H - Math.max(10, Number(P.bottomPad) || 10);
     const x0 = (W - totalW) / 2;
     let hue = state.hue;   // 混搭开启时按柱位逐根取色（形成渐变）
     const style = P.barStyle || 'glass';
@@ -314,7 +324,7 @@
 
 
   /** 是否走演示动画：没有音频源，或有源但连续静音 */
-  function useDemo() { return !state.audioOn || state.silentFor > 2.5; }
+  function useDemo() { return !state.audioOn || state.silentFor > (Number(P.silenceSec) || 6); }
 
   function theme() { const t = THEMES[P.theme] || THEMES.deepsea; return { name: t.name, hue: (t.hue + (P.hueShift || 0) + 360) % 360, sat: t.sat, light: t.light }; }
 
@@ -515,10 +525,13 @@ ctx.globalCompositeOperation = 'source-over';
       'attribute vec3 a_color;',
       'uniform vec2 u_res;',
       'uniform float u_dpr;',
+      'uniform float u_flipY;',
       'varying vec3 v_color;',
       'void main(){',
       '  vec2 clip = (a_pos / u_res) * 2.0 - 1.0;',
-      '  clip.y = -clip.y;',
+      // FBO 离屏渲染 + 全屏 quad 的 UV 天然带一次上下翻转，这里必须只翻一次：
+      // u_flipY=1 → 保持 clip.y（净效果 1:1，地形正立）；=0 → 再翻一次（旧的倒挂观感）
+      '  clip.y = mix(-clip.y, clip.y, u_flipY);',
       '  gl_Position = vec4(clip, 0.0, 1.0);',
       '  gl_PointSize = a_size * u_dpr;',
       '  v_color = a_color;',
@@ -660,6 +673,7 @@ ctx.globalCompositeOperation = 'source-over';
       gl.enableVertexAttribArray(acol);
       gl.vertexAttribPointer(acol, 3, gl.FLOAT, false, 24, 12);
       gl.uniform2f(gl.getUniformLocation(progPoint, 'u_res'), W, H);
+      gl.uniform1f(gl.getUniformLocation(progPoint, 'u_flipY'), (P.flipY === 0 || P.flipY === '0') ? 0 : 1);
       gl.uniform1f(gl.getUniformLocation(progPoint, 'u_dpr'), rdpr);
       gl.drawArrays(gl.POINTS, 0, n);
     }
@@ -818,7 +832,10 @@ ctx.globalCompositeOperation = 'source-over';
     }
     state.beat = Math.max(0, state.beat - 0.06 * dt);
     // 无信号计时：连续静音 > 2.5s 视为"没有声音在放"，改用演示动画（防止画面像死了一样）
-    if (state.audioOn && state.audioLevel < 0.01) state.silentFor += dt;
+    // 峰值保持：len 缓慢衰减，避免一个安静瞬间就归零
+    state.peakLevel = Math.max(state.audioLevel, (state.peakLevel || 0) * Math.pow(0.5, dt));
+    const lim = Math.max(0.008, Number(P.silenceThreshold) || 0.008);
+    if (state.audioOn && state.peakLevel < lim) state.silentFor += dt;
     else state.silentFor = 0;
   }
 
@@ -915,5 +932,23 @@ ctx.globalCompositeOperation = 'source-over';
     getParam: function (key) { return P[key]; },
     getThemes: function () { return Object.keys(THEMES).map(function (k) { return { key: k, name: THEMES[k].name }; }); },
     getState: function () { return state; },
+    // 调试探针：暴露真实几何，供 scripts/diag-*.js 判断"律动画到哪里了"
+    getGeometry: function () {
+      let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity, maxSize = 0;
+      for (let i = 0; i < photons.length; i++) {
+        const p = photons[i];
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.size > maxSize) maxSize = p.size;
+      }
+      return {
+        W: W, H: H, dpr: dpr, backend: backendName,
+        bottomPad: Number(P.bottomPad) || 0, stageH: Math.max(240, H - (Number(P.bottomPad) || 0)),
+        photonYMin: minY, photonYMax: maxY, photonXMin: minX, photonXMax: maxX, maxPointSize: maxSize,
+        canvasRect: (function () { const r = canvas.getBoundingClientRect(); return { top: r.top, h: r.height, w: r.width }; })(),
+      };
+    },
   };
 })();

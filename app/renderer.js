@@ -1016,8 +1016,17 @@
     ['p-mousewave', 'mouseWave', 'v-mousewave'], ['p-barstyle', 'barStyle', null],
     ['p-barblur', 'barBlur', 'v-barblur'], ['p-baralpha', 'barAlpha', 'v-baralpha'],
     ['p-barglow', 'barGlow', 'v-barglow'], ['p-barround', 'barRound', 'v-barround'],
-    ['p-colormix', 'colorMix', 'v-colormix'],
+    ['p-colormix', 'colorMix', 'v-colormix'], ['p-bottompad', 'bottomPad', 'v-bottompad'],
+    ['p-flipy', 'flipY', 'v-flipy'],
   ];
+  /** 地形朝向的标签要显示文字而不是数字（0/1） */
+  function bindFlipYLabel() {
+    const el = $('p-flipy'), label = $('v-flipy');
+    if (!el || !label) return;
+    const paint = () => { label.textContent = Number(el.value) >= 0.5 ? '正立' : '倒挂'; };
+    el.addEventListener('input', paint);   // 在 pKeys 的监听之后注册，最终以文字覆盖
+    paint();
+  }
   function renderThemes() {
     themesEl.innerHTML = '';
     (engine.getThemes() || []).forEach((t) => {
@@ -2551,6 +2560,35 @@
 
   // —— 引导逻辑 ——
 
+  /** 按播放条实际高度设置底部留白，避免律动贴到屏幕最底/被播放条压住 */
+  let bottomPadManual = false;
+  try { bottomPadManual = localStorage.getItem('songwave.bottomPadManual') === '1'; } catch (e) { /* ignore */ }
+  (function bindBottomPadManual() {
+    const el = document.getElementById('p-bottompad');
+    if (el) {
+      el.addEventListener('input', () => {
+        bottomPadManual = true;
+        try { localStorage.setItem('songwave.bottomPadManual', '1'); } catch (e) { /* ignore */ }
+      }, { passive: true });
+      // 双击恢复「自动跟随播放条」
+      el.addEventListener('dblclick', () => {
+        bottomPadManual = false;
+        try { localStorage.removeItem('songwave.bottomPadManual'); } catch (e) { /* ignore */ }
+        applyBottomPad();
+      });
+    }
+  })();
+
+  function applyBottomPad() {
+    const bar = $('player');
+    const h = bar && bar.getBoundingClientRect ? Math.round(bar.getBoundingClientRect().height) : 76;
+    const label = $('v-bottompad');
+    if (bottomPadManual) { if (label) label.textContent = (engine.getParam('bottomPad') || 0) + 'px（手动）'; return; }
+    const pad = Math.max(48, (h || 76) + 24);
+    engine.setParam('bottomPad', pad);
+    if (label) label.textContent = pad + 'px 自动';
+  }
+
   function boot() {
     if (IS_WALLPAPER) { enterWallpaperLocal(); return; }
     // 给 Song-Life 的粒子层打标记，便于背景模式下整体淡出（不改引擎源码）
@@ -2560,6 +2598,7 @@
     } catch (e) { /* ignore */ }
     renderThemes();
     bindParams();
+    bindFlipYLabel();
     // 恢复上次选择的音源
     try {
       const s = localStorage.getItem('songwave.source');
@@ -2568,6 +2607,8 @@
         document.querySelectorAll('#src-chips .chip').forEach((x) => x.classList.toggle('active', x.dataset.src === curSource));
       }
     } catch (e) { /* ignore */ }
+    applyBottomPad();
+    window.addEventListener('resize', applyBottomPad);
     bindPanelCollapse();
     renderFxControls();
     loadFxPresets();
