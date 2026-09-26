@@ -716,9 +716,27 @@ ctx.globalCompositeOperation = 'source-over';
     node.connect(analyser);
     state.audioOn = true;
   }
+  // ---------- 用户音效链（EQ / 混响等）：插在 analyser 与输出之间 ----------
+  let effectNodes = [];
+  function rebuildEffectChain() {
+    if (!audioCtx) return;
+    try { analyser.disconnect(); } catch (e) { /* ignore */ }
+    let prev = analyser;
+    effectNodes.forEach(function (n) {
+      try { prev.connect(n); } catch (e) { /* ignore */ }
+      prev = n;
+    });
+    if (speakerGain) { try { prev.connect(speakerGain); } catch (e) { /* ignore */ } }
+  }
+  function setEffects(nodes) {
+    effectNodes = Array.isArray(nodes) ? nodes : [];
+    if (!audioCtx) return false;
+    rebuildEffectChain();
+    return true;
+  }
+  function getAudioContext() { return audioCtx; }
   function onEnd(kind) {
-    state.audioOn = false;
-    if (window.SongLife && window.SongLife._onSourceEnd) window.SongLife._onSourceEnd(kind);
+    state.audioOn = false;    if (window.SongLife && window.SongLife._onSourceEnd) window.SongLife._onSourceEnd(kind);
   }
   function initSystemAudio() {
     ensureCtx();
@@ -877,6 +895,8 @@ ctx.globalCompositeOperation = 'source-over';
     initMic: initMic,
     initFile: initFile,
     initAudio: initFile,
+    setEffects: setEffects,
+    getAudioContext: getAudioContext,
     _onSourceEnd: null,
     backend: backendName,
     setTheme: function (name) { if (THEMES[name]) P.theme = name; },

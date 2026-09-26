@@ -1,6 +1,6 @@
 // 声浪 SongWave · 多平台音源（QQ / 酷狗 / 酷我 / 咪咕）
-// 搜索走各平台公开 JSON 接口；**播放取链交给 lx 用户音源脚本**（flower 已支持 kw/tx/wy/kg/mg）
-// 每个平台保留“原生 ID 字段”（songmid/hash/copyrightId），这是 lx 脚本取链所必需的
+// 搜索走各平台公开 JSON 接口；**播放取链交给 扩展音源脚本**（flower 已支持 kw/tx/wy/kg/mg）
+// 每个平台保留“原生 ID 字段”（songmid/hash/copyrightId），这是 扩展音源脚本取链所必需的
 'use strict';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
@@ -20,11 +20,11 @@ function msFromSeconds(s) {
   return n > 0 ? Math.round(n * 1000) : 0;
 }
 
-// —— QQ 音乐（lx: tx） ——
+// —— QQ 音乐（扩展源: tx） ——
 const qq = {
   key: 'qq',
   label: 'QQ音乐',
-  lxSource: 'tx',
+  extKey: 'tx',
   platform: 'qq',
   async search(keywords, limit = 20) {
     const url = 'https://c.y.qq.com/soso/fcgi-bin/client_search_cp?new_json=1&format=json&p=1&n=' +
@@ -40,16 +40,16 @@ const qq = {
       cover: it.albummid ? ('https://y.gtimg.cn/music/photo_new/T002R300x300M000' + it.albummid + '.jpg') : '',
       durationMs: msFromSeconds(it.interval),
       source: 'qq',
-      lxSource: 'tx',
+      extKey: 'tx',
     })).filter((x) => x.id);
   },
 };
 
-// —— 酷狗（lx: kg） ——
+// —— 酷狗（扩展源: kg） ——
 const kugou = {
   key: 'kugou',
   label: '酷狗',
-  lxSource: 'kg',
+  extKey: 'kg',
   platform: 'kugou',
   async search(keywords, limit = 20) {
     const url = 'https://mobilecdn.kugou.com/api/v3/search/song?format=json&showtype=1&page=1&pagesize=' +
@@ -66,16 +66,16 @@ const kugou = {
       cover: '',
       durationMs: msFromSeconds(it.duration),
       source: 'kugou',
-      lxSource: 'kg',
+      extKey: 'kg',
     })).filter((x) => x.id);
   },
 };
 
-// —— 酷我（lx: kw） ——
+// —— 酷我（扩展源: kw） ——
 const kuwo = {
   key: 'kuwo',
   label: '酷我',
-  lxSource: 'kw',
+  extKey: 'kw',
   platform: 'kuwo',
   async search(keywords, limit = 20) {
     const url = 'http://www.kuwo.cn/api/www/search/searchMusicBykeyWord?httpsStatus=1&pn=1&rn=' +
@@ -91,16 +91,16 @@ const kuwo = {
       cover: it.pic || '',
       durationMs: msFromSeconds(it.duration),
       source: 'kuwo',
-      lxSource: 'kw',
+      extKey: 'kw',
     })).filter((x) => x.id);
   },
 };
 
-// —— 咪咕（lx: mg） ——
+// —— 咪咕（扩展源: mg） ——
 const migu = {
   key: 'migu',
   label: '咪咕',
-  lxSource: 'mg',
+  extKey: 'mg',
   platform: 'migu',
   async search(keywords, limit = 20) {
     const url = 'https://m.music.migu.cn/migu/remoting/scr_search_tag?type=2&pgc=1&rows=' +
@@ -117,7 +117,7 @@ const migu = {
       cover: it.cover || it.albumPic || '',
       durationMs: 0,
       source: 'migu',
-      lxSource: 'mg',
+      extKey: 'mg',
     })).filter((x) => x.id);
   },
 };

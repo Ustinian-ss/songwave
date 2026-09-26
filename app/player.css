@@ -645,3 +645,43 @@ body.bg-blend .songwave-rings { opacity: var(--viz-opacity, .85); }
 .dl-line.dl-cur { opacity: 1; }
 .dl-line.dl-next { opacity: .55; }
 .dl-shadow .dl-line { text-shadow: 0 2px 10px rgba(0,0,0,.85), 0 0 2px rgba(0,0,0,.9); }
+
+/* ===== 面板分组折叠（用户自己展开调节，避免太乱） ===== */
+.panel-title.collapsible { cursor: pointer; user-select: none; }
+.panel-title.collapsible::before {
+  content: '▾';
+  margin-right: 6px;
+  font-size: 10px;
+  color: #7f8ea8;
+  transition: transform .2s;
+  display: inline-block;
+}
+.panel-group.collapsed .panel-title.collapsible::before { transform: rotate(-90deg); }
+.panel-group.collapsed > *:not(.panel-title) { display: none !important; }
+.panel-group.collapsed { padding-bottom: 2px; }
+
+/* 主题里的「混搭」档 */
+.theme.theme-mix { border-style: dashed; }
+.theme.theme-mix.active { border-style: solid; }
+
+/* ===== 桌面歌词动效 ===== */
+#desktop-lyric.anim-breath .dl-line.dl-cur { animation: dl-breath 3.2s ease-in-out infinite; }
+@keyframes dl-breath { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
+#desktop-lyric.anim-pulse .dl-line.dl-cur { animation: dl-pulse 1.5s ease-in-out infinite; }
+@keyframes dl-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+#desktop-lyric.anim-neon .dl-line.dl-cur { animation: dl-neon 2.6s linear infinite; }
+@keyframes dl-neon {
+  0% { text-shadow: 0 0 8px currentColor; }
+  50% { text-shadow: 0 0 22px currentColor, 0 0 44px currentColor; }
+  100% { text-shadow: 0 0 8px currentColor; }
+}
+#desktop-lyric .dl-char { opacity: .42; transition: opacity .16s linear; }
+#desktop-lyric .dl-char.hit { opacity: 1; }
+
+/* ===== 音效面板（10 段 EQ） ===== */
+.eq-bands { display: flex; flex-direction: column; gap: 4px; }
+.eq-band { display: flex; align-items: center; gap: 8px; }
+.eq-band label { flex: 0 0 52px; font-size: 11px; color: #8fa4c4; }
+.eq-band input[type="range"] { flex: 1; }
+.eq-band .eq-val { flex: 0 0 44px; text-align: right; font-size: 11px; color: #93a6c4; }
+.fx-hint { font-size: 11px; color: #7f8ea8; }

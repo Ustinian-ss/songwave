@@ -1,4 +1,4 @@
-// 声浪 SongWave · 音源脚本管理测试（离线：假 lx 脚本 + mock fetch）
+// 声浪 SongWave · 音源脚本管理测试（离线：假 扩展音源脚本 + mock fetch）
 // 用法：node scripts/test-source-manager.js
 'use strict';
 const fs = require('fs');
@@ -12,7 +12,7 @@ function check(name, cond, detail) {
   else { fail++; console.error('  ✘', name, detail || ''); }
 }
 
-// 一个最小的合法 lx v2 音源脚本（声明 kw/tx 取链能力 + 注册 request 处理器）
+// 一个最小的合法 扩展源 v2 音源脚本（声明 kw/tx 取链能力 + 注册 request 处理器）
 const FAKE_LX = `
 const { EVENT_NAMES, on, send } = globalThis.lx;
 send(EVENT_NAMES.inited, {
@@ -45,8 +45,8 @@ function makeFetch(map) {
 (async () => {
   try {
     // 1) 工具函数
-    check('识别 lx 脚本', looksLikeLxScript(FAKE_LX) === true);
-    check('拒绝非 lx 内容', looksLikeLxScript(NOT_LX) === false);
+    check('识别 扩展音源脚本', looksLikeLxScript(FAKE_LX) === true);
+    check('拒绝非 扩展源 内容', looksLikeLxScript(NOT_LX) === false);
     check('文件名清理', safeName('flower-v1.0.0.js') === 'flower-v1.0.0' && safeName('a b/c.js') === 'a_b_c', safeName('flower-v1.0.0.js') + ' | ' + safeName('a b/c.js'));
 
     const mgr = createSourceManager({
@@ -72,7 +72,7 @@ function makeFetch(map) {
     check('拒绝非 http 链接', /只支持 http\/https/.test(String(err1)), String(err1));
     let err2 = null;
     try { await mgr.addFromUrl('https://src.example/bad.js'); } catch (e) { err2 = e.message; }
-    check('拒绝非 lx 脚本内容', /不是有效的 lx 音源脚本/.test(String(err2)), String(err2));
+    check('拒绝非 扩展音源脚本内容', /不是有效的 扩展音源脚本/.test(String(err2)), String(err2));
     let err3 = null;
     try { await mgr.addFromUrl('https://src.example/missing.js'); } catch (e) { err3 = e.message; }
     check('下载失败有明确错误', /下载失败/.test(String(err3)), String(err3));

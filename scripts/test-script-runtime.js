@@ -1,14 +1,14 @@
-// 声浪 SongWave · LX 用户音源脚本运行时测试（离线，无需网络/Electron）
-// 用法：node scripts/test-lx-runtime.js [脚本路径]
+// 声浪 SongWave · 扩展音源脚本运行时测试（离线，无需网络/Electron）
+// 用法：node scripts/test-script-runtime.js [脚本路径]
 // 默认测试 D:\小程序\lxmusic\flower-v1.0.0.js，可传参换 sixyin 等
 'use strict';
 
 const path = require('path');
 const fs = require('fs');
-const { loadScript } = require('../src/sources/lx-runtime');
-const { createLxSource } = require('../src/sources/lx-source');
+const { loadScript } = require('../src/sources/script-runtime');
+const { createLxSource } = require('../src/sources/script-source');
 
-const DEFAULT_SCRIPT = process.env.SONGWAVE_LX_SCRIPT || 'D:\\小程序\\lxmusic\\flower-v1.0.0.js';
+const DEFAULT_SCRIPT = process.env.SONGWAVE_SOURCE_SCRIPT || 'D:\\小程序\\lxmusic\\flower-v1.0.0.js';
 
 let pass = 0, fail = 0;
 function check(name, cond, detail) {
@@ -20,7 +20,7 @@ async function main() {
   const scriptPath = process.argv[2] || DEFAULT_SCRIPT;
   console.log('测试脚本：', scriptPath);
   if (!fs.existsSync(scriptPath)) {
-    console.error('脚本不存在，跳过（可用 SONGWAVE_LX_SCRIPT 指定其他路径）');
+    console.error('脚本不存在，跳过（可用 SONGWAVE_SOURCE_SCRIPT 指定其他路径）');
     return;
   }
 
@@ -71,24 +71,24 @@ async function main() {
   check('声明了至少一个音源', sourceKeys.length > 0);
 
   // 2) 适配层搜索（声明了 search 才测；纯 musicUrl 源跳过搜索断言）
-  const lx = await createLxSource(scriptPath, { requestImpl, name: path.basename(scriptPath) });
-  console.log('  搜索源：', lx.searchSources.join(', ') || '（无，纯取链源）');
-  if (lx.searchSources.length) {
+  const 扩展源 = await createLxSource(scriptPath, { requestImpl, name: path.basename(scriptPath) });
+  console.log('  搜索源：', 扩展源.searchSources.join(', ') || '（无，纯取链源）');
+  if (扩展源.searchSources.length) {
     let list = [];
     try {
-      list = await lx.search('测试', 10);
-      check('lx.search 不抛异常', true);
+      list = await 扩展源.search('测试', 10);
+      check('扩展源.search 不抛异常', true);
     } catch (err) {
-      check('lx.search 不抛异常', false, err.message);
+      check('扩展源.search 不抛异常', false, err.message);
     }
-    check('lx.search 返回数组', Array.isArray(list));
+    check('扩展源.search 返回数组', Array.isArray(list));
     console.log('  离线 search 结果数：', list.length);
   }
 
   // 3) musicUrl（flower 的核心能力；sixyin 若声明也应工作）
-  if (sourceKeys.length && lx.supports(sourceKeys[0], 'musicUrl')) {
+  if (sourceKeys.length && 扩展源.supports(sourceKeys[0], 'musicUrl')) {
     try {
-      const url = await lx.getPlayUrl(sourceKeys[0], { id: 'test-id', songmid: 'TESTMID', hash: 'TESTHASH' }, '128k');
+      const url = await 扩展源.getPlayUrl(sourceKeys[0], { id: 'test-id', songmid: 'TESTMID', hash: 'TESTHASH' }, '128k');
       check(`getPlayUrl(${sourceKeys[0]}) 离线桩成功`, /^http/.test(url), url);
     } catch (err) {
       check(`getPlayUrl(${sourceKeys[0]}) 可控错误（桩数据不匹配属预期）`, /未返回播放地址|不支持|服务器异常|fetch/i.test(String(err.message || err)), String(err.message || err).slice(0, 80));

@@ -33,7 +33,7 @@
     <div id="hint">左侧搜索在线音乐，或「本地音乐」导入文件</div>
   </div>
 
-  <!-- 左侧功能栏（对齐 LX Music 的竖向导航） -->
+  <!-- 左侧功能栏（竖向功能栏） -->
   <nav id="rail">
     <button class="rail-btn active" data-view="search" title="搜索">🔍</button>
     <button class="rail-btn" data-view="list" title="播放列表">☰</button>
@@ -105,7 +105,7 @@
       </div>
       <div id="history" class="vlist"></div>
     </div>
-    <div id="lx-status" class="lx-status" title="音源状态">音源加载中…</div>
+    <div id="ext-status" class="ext-status" title="音源状态">音源加载中…</div>
   </aside>
 
   <!-- 底部播放条 -->
@@ -169,10 +169,10 @@
       <button class="panel-close" id="panel-close">✕</button>
     </div>
     <div class="panel-body">
-      <!-- 音源管理（对齐 LX Music 的“自定义源”：粘贴链接导入） -->
+      <!-- 音源管理（自定义音源：粘贴链接导入） -->
       <div class="panel-group">
         <div class="panel-title">
-          <span>音源管理 · lx 自定义源</span>
+          <span>音源管理 · 自定义音源</span>
           <button class="btn mini" id="src-refresh" title="重新检测">↻</button>
         </div>
         <div class="src-add">
@@ -180,7 +180,7 @@
           <button class="btn btn-primary" id="src-add-btn">导入</button>
         </div>
         <div class="row src-tools">
-          <button class="btn" id="src-import-lx" title="读取 %APPDATA%\lx-music-desktop\LxDatas\user_api.json">从 LX Music 导入</button>
+          <button class="btn" id="src-import-external" title="读取 %APPDATA%\外部播放器-desktop\LxDatas\user_api.json">从其它播放器导入</button>
           <button class="btn" id="src-import-dir">文件夹导入</button>
           <button class="btn" id="src-pick">选文件</button>
         </div>
@@ -327,6 +327,27 @@
         </div>
       </div>
 
+      <!-- 音效：10 段 EQ + 混响 -->
+      <div class="panel-group">
+        <div class="panel-title">音效（10 段 EQ · 混响）</div>
+        <div class="param row-inline">
+          <label><input type="checkbox" id="fx-enable"> 启用音效</label>
+          <label class="fx-hint" id="fx-hint">启用后可视化切为直连模式</label>
+        </div>
+        <div class="param">
+          <label>预设</label>
+          <select id="fx-preset"></select>
+        </div>
+        <div id="eq-bands" class="eq-bands"></div>
+        <div class="param">
+          <label>混响 <span id="v-fxreverb">0%</span></label>
+          <input type="range" id="fx-reverb" min="0" max="1" step="0.05" value="0">
+        </div>
+        <div class="row src-tools">
+          <button class="btn mini" id="fx-reset">重置为原声</button>
+        </div>
+      </div>
+
       <!-- 桌面歌词（沉浸 / 壁纸模式显示） -->
       <div class="panel-group">
         <div class="panel-title">桌面歌词（沉浸 / 壁纸模式）</div>
@@ -378,6 +399,16 @@
             <option value="SimHei">黑体</option>
             <option value="SimSun">宋体</option>
             <option value="KaiTi">楷体</option>
+          </select>
+        </div>
+        <div class="param">
+          <label>歌词动效</label>
+          <select id="dl-anim">
+            <option value="none">无</option>
+            <option value="breath">呼吸</option>
+            <option value="karaoke">逐字扫过</option>
+            <option value="pulse">律动缩放</option>
+            <option value="neon">霓虹发光</option>
           </select>
         </div>
       </div>

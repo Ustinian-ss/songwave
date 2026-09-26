@@ -49,24 +49,24 @@ global.fetch = async (url, opts) => {
     const r1 = await qq.search('周杰伦', 5);
     check('QQ：解析出 1 首', r1.length === 1);
     check('QQ：歌名/歌手正确', r1[0].name === '晴天' && r1[0].artist === '周杰伦');
-    check('QQ：保留 songmid（lx 取链必需）', r1[0].songmid === '0039MnYb0qxYhV');
+    check('QQ：保留 songmid（取链必需）', r1[0].songmid === '0039MnYb0qxYhV');
     check('QQ：时长转毫秒', r1[0].durationMs === 269000, String(r1[0].durationMs));
-    check('QQ：lxSource=tx', r1[0].lxSource === 'tx' && r1[0].source === 'qq');
+    check('QQ：extKey=tx', r1[0].extKey === 'tx' && r1[0].source === 'qq');
 
     const r2 = await kugou.search('周杰伦', 5);
     check('酷狗：解析出 1 首', r2.length === 1);
-    check('酷狗：保留 hash（lx 取链必需）', r2[0].hash === 'ABC123HASH');
-    check('酷狗：lxSource=kg', r2[0].lxSource === 'kg');
+    check('酷狗：保留 hash（取链必需）', r2[0].hash === 'ABC123HASH');
+    check('酷狗：extKey=kg', r2[0].extKey === 'kg');
 
     const r3 = await kuwo.search('周杰伦', 5);
     check('酷我：解析出 1 首', r3.length === 1);
     check('酷我：rid 映射到 songmid', r3[0].songmid === '987654');
-    check('酷我：lxSource=kw', r3[0].lxSource === 'kw');
+    check('酷我：extKey=kw', r3[0].extKey === 'kw');
 
     const r4 = await migu.search('周杰伦', 5);
     check('咪咕：解析出 1 首', r4.length === 1);
-    check('咪咕：保留 copyrightId（lx 取链必需）', r4[0].copyrightId === 'CP999');
-    check('咪咕：lxSource=mg', r4[0].lxSource === 'mg');
+    check('咪咕：保留 copyrightId（取链必需）', r4[0].copyrightId === 'CP999');
+    check('咪咕：extKey=mg', r4[0].extKey === 'mg');
 
     // 请求头/UA
     check('请求带 Referer（QQ）', typeof lastUrl === 'string');

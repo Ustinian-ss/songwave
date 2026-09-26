@@ -111,6 +111,22 @@ const doc = {
 const audioEl = makeAudioEl();
 ids['audio'] = audioEl;
 
+function makeAudioNode() {
+  return {
+    connect() { return this; }, disconnect() {},
+    gain: { value: 0 }, frequency: { value: 0 }, Q: { value: 0 }, type: '', buffer: null,
+  };
+}
+const fakeCtx = {
+  sampleRate: 44100, state: 'running',
+  destination: makeAudioNode(),
+  createGain: () => makeAudioNode(),
+  createBiquadFilter: () => makeAudioNode(),
+  createConvolver: () => makeAudioNode(),
+  createBuffer: (ch, len) => ({ getChannelData: () => new Float32Array(len) }),
+  resume() {},
+};
+
 const engineStub = {
   _onSourceEnd: null,
   initSystemAudio: async () => { engineStub.calls = (engineStub.calls || []).concat('system'); return 'system'; },
@@ -120,6 +136,8 @@ const engineStub = {
   getParam(k) { return (engineStub.params && engineStub.params[k] !== undefined) ? engineStub.params[k] : (k === 'theme' ? 'deepsea' : 1); },
   getThemes() { return [{ key: 'deepsea', name: '深海' }]; },
   getState() { return { audioLevel: 0 }; },
+  setEffects(nodes) { engineStub.effects = nodes; return true; },
+  getAudioContext() { return fakeCtx; },
 };
 
 const sandbox = {
@@ -142,15 +160,25 @@ const sandbox = {
         const host = src === 'qq' ? 'http://dl.stream.qqmusic.qq.com/' : 'https://music.163.com/song/media/outer/url?id=';
         return { ok: true, url: host + (obj && obj.id !== undefined ? obj.id : obj) + '.mp3' };
       },
+      audioPresets: async () => ({
+        ok: true,
+        freqs: [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000],
+        presets: [
+          { key: 'off', name: '关闭（原声）', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+          { key: 'pop', name: '流行', gains: [-1, 0, 2, 3, 2, 0, -1, -1, 0, 1] },
+          { key: 'rock', name: '摇滚', gains: [4, 3, 1, -1, -2, -1, 1, 3, 4, 4] },
+          { key: 'bass', name: '低音增强', gains: [7, 6, 4, 2, 0, -1, -2, -2, -1, 0] },
+        ],
+      }),
       altSources: async (p) => {
         lastAltQuery = p;
         if (altEmpty) return { ok: true, alternatives: [] };
-        if (altAllFail) return { ok: true, alternatives: [{ source: 'kugou', id: 'K1', name: '晴天', artist: '周杰伦', lxSource: 'kg' }, { source: 'kuwo', id: 'W1', name: '晴天', artist: '周杰伦', lxSource: 'kw' }] };
-        return { ok: true, alternatives: [{ source: 'qq', id: 'MID9', name: '晴天', artist: '周杰伦', lxSource: 'tx', songmid: 'MID9' }] };
+        if (altAllFail) return { ok: true, alternatives: [{ source: 'kugou', id: 'K1', name: '晴天', artist: '周杰伦', extKey: 'kg' }, { source: 'kuwo', id: 'W1', name: '晴天', artist: '周杰伦', extKey: 'kw' }] };
+        return { ok: true, alternatives: [{ source: 'qq', id: 'MID9', name: '晴天', artist: '周杰伦', extKey: 'tx', songmid: 'MID9' }] };
       },
       getLyric: async () => ({ ok: true, data: { lrc: '[00:01.00]第一句\n[00:10.00]第二句\n', tlyric: '[00:10.00]Second line' } }),
       openLocalFiles: async () => [],
-      getLxStatus: async () => ({ ok: true, loaded: true, name: 'flower', sourceKeys: ['kw', 'mg'], searchSources: [] }),
+      getExtStatus: async () => ({ ok: true, loaded: true, name: 'flower', sourceKeys: ['kw', 'mg'], searchSources: [] }),
       getDefaultSaveDir: async () => 'D:/musicdownload',
       download: async (o) => { lastDownload = o; return { ok: true, filePath: 'D:/musicdownload/' + o.filename }; },
       cancelDownload: async () => ({ ok: true }),
@@ -172,7 +200,7 @@ const sandbox = {
       srcToggle: async () => ({ ok: true, items: [], state: { loaded: true, sourceKeys: [] } }),
       srcRemove: async () => ({ ok: true, items: [], state: { loaded: false, sourceKeys: [] } }),
       srcPick: async () => ({ ok: false }),
-      srcImportLx: async () => { lastLxImport = true; return { ok: true, imported: [{ name: '野花🌷', sourceKeys: ['kw', 'tx'] }], skipped: [], items: [], state: { loaded: true, sourceKeys: ['kw', 'tx'], items: [] } }; },
+      srcImportExternal: async () => { lastLxImport = true; return { ok: true, imported: [{ name: '野花🌷', sourceKeys: ['kw', 'tx'] }], skipped: [], items: [], state: { loaded: true, sourceKeys: ['kw', 'tx'], items: [] } }; },
       srcImportDir: async () => ({ ok: true, scanned: 3, imported: [{ name: 'a' }], items: [], state: { loaded: true, sourceKeys: ['kw'], items: [] } }),
       srcUpdate: async () => ({ ok: true, entry: { name: 'x' } }),
       playlistImport: async (p) => {
@@ -194,6 +222,7 @@ const sandbox = {
     innerWidth: 1280,
   },
   document: doc,
+  AudioContext: function () { return fakeCtx; },
   localStorage: {
     _d: {},
     getItem(k) { return this._d[k] || null; },
@@ -219,7 +248,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 (async () => {
   try {
     // 1) boot 后的初始状态
-    check('boot 后主题按钮已生成', ids['themes']._children.length === 1);
+    check('boot 后主题按钮已生成（含「混搭」档）', ids['themes']._children.length >= 2, String(ids['themes']._children.length));
     check('boot 后状态条显示欢迎语', /欢迎使用/.test(ids['status'].textContent));
     check('Tab 回调已绑定', typeof tabEls[0].onclick === 'function' && typeof tabEls[1].onclick === 'function');
 
@@ -298,9 +327,9 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     ids['player']._emit('wheel', { deltaY: -100, preventDefault() {} });
     check('滚轮上调音量', Number(ids['volume'].value) === 65 && Math.abs(audioEl.volume - 0.65) < 1e-9);
 
-    // 11) lx 音源状态提示
+    // 11) 扩展音源状态提示
     await flush();
-    check('lx 状态提示已更新', /flower/.test(ids['lx-status'].textContent));
+    check('扩展源 状态提示已更新', /flower/.test(ids['ext-status'].textContent));
 
     // 12) 下载：搜索结果行的 ⤓ 按钮 → 解析直链 → 调下载 → 状态提示
     const dlRow = ids['results']._children[0];
@@ -384,12 +413,12 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     check('歌单歌曲已加入播放列表', ids['playlist']._children.length === beforeCount + 2, String(ids['playlist']._children.length));
     check('歌单导入提示', /已导入歌单/.test(ids['status'].textContent), ids['status'].textContent);
 
-    // 20) 从 LX Music 导入音源
-    doc.getElementById('src-import-lx').onclick();
+    // 20) 从其它播放器导入音源
+    doc.getElementById('src-import-external').onclick();
     await flush();
     await flush();
-    check('触发了从 LX 导入', lastLxImport === true);
-    check('LX 导入结果提示', /已从 LX 导入/.test(ids['status'].textContent), ids['status'].textContent);
+    check('触发了外部导入', lastLxImport === true);
+    check('外部导入结果提示', /已从外部播放器导入/.test(ids['status'].textContent), ids['status'].textContent);
 
     // 21) 播放模式 / 倍速 / 定时停止
     const modeBtn = doc.getElementById('btn-mode');
@@ -530,6 +559,27 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     check('替代源全部失败时逐个平台显示原因', /换源失败：.*(酷狗|酷我)/.test(ids['status'].textContent), ids['status'].textContent);
     altAllFail = false;
     failSources.clear();
+
+    // 29) 音效：10 段 EQ + 混响
+    await flush();
+    check('音效预设已填充', ids['fx-preset']._children.length >= 4, String(ids['fx-preset']._children.length));
+    check('EQ 生成 10 段滑块', ids['eq-bands']._children.length === 10, String(ids['eq-bands']._children.length));
+    ids['fx-preset'].value = 'bass';
+    ids['fx-preset'].onchange();
+    const fxSaved = JSON.parse(String(sandbox.localStorage._d['songwave.effects'] || '{}'));
+    check('选预设后增益写入', Array.isArray(fxSaved.gains) && fxSaved.gains[0] === 7, JSON.stringify(fxSaved.gains));
+    const fxEn = doc.getElementById('fx-enable');
+    fxEn.checked = true;
+    fxEn.onchange();
+    check('音效链已下发引擎（1 前级 + 10 段 + 1 输出）', Array.isArray(engineStub.effects) && engineStub.effects.length === 12, String(engineStub.effects && engineStub.effects.length));
+    check('开启音效切到直连模式', (engineStub.calls || []).includes('file'));
+    const revEl = doc.getElementById('fx-reverb');
+    revEl.value = '0.5';
+    revEl.oninput();
+    check('混响设置已持久化', /"reverb":0.5/.test(String(sandbox.localStorage._d['songwave.effects'] || '')), String(sandbox.localStorage._d['songwave.effects']));
+    fxEn.checked = false;
+    fxEn.onchange();
+    check('关闭音效清空效果链', Array.isArray(engineStub.effects) && engineStub.effects.length === 0);
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
     process.exit(fail ? 1 : 0);

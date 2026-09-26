@@ -1,4 +1,4 @@
-// 声浪 SongWave · 音源脚本管理（对齐 LX Music 的“自定义源”逻辑）
+// 声浪 SongWave · 音源脚本管理（对齐 外部播放器 的“自定义源”逻辑）
 // 支持：粘贴音源链接导入 / 本地 .js 导入 / 启用停用 / 删除 / 能力探测 / 持久化
 // 纯 Node 实现（fetch 与目录均可注入），便于离线测试
 'use strict';
@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { loadScript } = require('./lx-runtime');
+const { loadScript } = require('./script-runtime');
 
 const MAX_SCRIPT_BYTES = 8 * 1024 * 1024;
 
@@ -21,7 +21,7 @@ function safeName(s) {
     .slice(0, 60) || 'source';
 }
 
-/** 粗校验：是不是 lx 用户音源脚本
+/** 粗校验：是不是 扩展音源脚本
  *  注意：混淆脚本会把 lx 写成 '\x6c\x78'，所以这里只做「明显不是脚本」的排除，
  *  真正的能力判断交给 vm 沙箱加载（inspect） */
 function looksLikeLxScript(text) {
@@ -107,10 +107,10 @@ function createSourceManager(opts) {
    */
   async function addFromScriptText(text, meta = {}) {
     if (Buffer.byteLength(text, 'utf8') > MAX_SCRIPT_BYTES) throw new Error('脚本过大（>8MB）');
-    if (!looksLikeLxScript(text)) throw new Error('这不是有效的 lx 音源脚本（未发现 lx 音源接口特征）');
+    if (!looksLikeLxScript(text)) throw new Error('这不是有效的 扩展音源脚本（未发现 扩展音源接口特征）');
     const name = safeName(meta.name || 'source');
     const id = meta.lxId ? hashId(String(meta.lxId) + text.length) : hashId(name + text.length + (meta.url || ''));
-    const file = path.join(dir, `lx-${name}-${id}.js`);
+    const file = path.join(dir, `ext-${name}-${id}.js`);
     fs.writeFileSync(file, text);
     const info = await inspect(file, meta);
     return upsert({
@@ -167,7 +167,7 @@ function createSourceManager(opts) {
       const p = path.join(abs, f);
       try {
         const text = fs.readFileSync(p, 'utf8');
-        if (!looksLikeLxScript(text)) { skipped.push({ name: f, error: '不是 lx 音源脚本' }); continue; }
+        if (!looksLikeLxScript(text)) { skipped.push({ name: f, error: '不是 扩展音源脚本' }); continue; }
         imported.push(await addFromScriptText(text, Object.assign({ name: path.basename(f, '.js'), from: 'dir' }, options)));
       } catch (e) {
         skipped.push({ name: f, error: String(e && e.message || e) });
@@ -185,7 +185,7 @@ function createSourceManager(opts) {
     const res = await fetchImpl(e.url, { redirect: 'follow' });
     if (!res || !res.ok) throw new Error('下载失败：HTTP ' + ((res && res.status) || '?'));
     const text = await res.text();
-    if (!looksLikeLxScript(text)) throw new Error('下载到的内容不是 lx 音源脚本');
+    if (!looksLikeLxScript(text)) throw new Error('下载到的内容不是 扩展音源脚本');
     fs.writeFileSync(e.file, text);
     const info = await inspect(e.file, e);
     Object.assign(e, {
@@ -237,14 +237,14 @@ function createSourceManager(opts) {
     return e;
   }
 
-  /** 加载所有已启用的音源，返回 [{entry, source}]，source 为 lx-source 适配对象 */
+  /** 加载所有已启用的音源，返回 [{entry, source}]，source 为 script-source 适配对象 */
   async function loadEnabled() {
     const out = [];
     for (const entry of readRegistry()) {
       if (!entry.enabled) continue;
       try {
-        // 这里复用 lx-source 适配层，避免重复实现
-        const { createLxSource } = require('./lx-source');
+        // 这里复用 script-source 适配层，避免重复实现
+        const { createLxSource } = require('./script-source');
         const source = await createLxSource(entry.file, {
           name: entry.name,
           version: entry.version || '',

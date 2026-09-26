@@ -1,8 +1,8 @@
 {
   "name": "songwave",
   "productName": "声浪 SongWave",
-  "version": "0.12.0",
-  "description": "声浪 SongWave · LX 逻辑音画播放器：播放模式/进度记忆/倍速/定时停止 + 我喜欢/播放历史/搜索历史 + 多平台音源与 lx 音源导入 + WE 壁纸背景 + 可视化",
+  "version": "1.0.0",
+  "description": "声浪 SongWave · 音画一体的桌面音乐播放器：多平台音源(网易/QQ/酷狗/酷我/咪咕) + 扩展音源脚本 + Wallpaper Engine 壁纸背景 + SongLife 可视化引擎 + 10段EQ音效 + 桌面歌词 + 下载",
   "main": "electron/main.js",
   "author": "SongWave",
   "license": "MIT",
@@ -16,17 +16,18 @@
     "test": "node scripts/test-renderer.js",
     "test:renderer": "node scripts/test-renderer.js",
     "test:sources": "node scripts/test-sources.js",
-    "test:lx": "node scripts/test-lx-runtime.js",
+    "test:script": "node scripts/test-script-runtime.js",
     "test:download": "node scripts/test-download.js",
     "build:dir": "electron-builder --win --dir",
-    "test:all": "node scripts/test-renderer.js && node scripts/test-match.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-platforms.js && node scripts/test-wallpaper-engine.js && node scripts/test-source-manager.js && node scripts/test-lx-import.js && node scripts/test-playlist-import.js && node scripts/test-lx-runtime.js",
+    "test:all": "node scripts/test-renderer.js && node scripts/test-match.js && node scripts/test-wallpaper.js && node scripts/test-download.js && node scripts/test-platforms.js && node scripts/test-wallpaper-engine.js && node scripts/test-source-manager.js && node scripts/test-import-sources.js && node scripts/test-playlist-import.js && node scripts/test-script-runtime.js && node scripts/test-audio-effects.js",
     "test:wallpaper": "node scripts/test-wallpaper.js",
     "test:platforms": "node scripts/test-platforms.js",
     "test:we": "node scripts/test-wallpaper-engine.js",
     "test:srcmgr": "node scripts/test-source-manager.js",
-    "test:lximp": "node scripts/test-lx-import.js",
+    "test:importsrc": "node scripts/test-import-sources.js",
     "test:plimp": "node scripts/test-playlist-import.js",
-    "test:match": "node scripts/test-match.js"
+    "test:match": "node scripts/test-match.js",
+    "test:fx": "node scripts/test-audio-effects.js"
   },
   "devDependencies": {
     "electron": "^32.0.0",

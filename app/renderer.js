@@ -23,6 +23,7 @@
   let playlist = [];
   let current = -1;
   let engineStarted = false;
+  let vizMode = 'none';   // none | system | direct
   let statusTimer = null;
   // 当前音源（网易/QQ/酷狗/酷我/咪咕）
   let curSource = 'netease';
@@ -94,8 +95,8 @@
     list.forEach((item) => {
       const row = document.createElement('div');
       row.className = 'track';
-      const badge = item.source === 'lx'
-        ? '<span class="t-src">' + esc(item.lxSource || 'lx') + '</span>'
+      const badge = item.source === 'ext'
+        ? '<span class="t-src">' + esc(item.extKey || 'ext') + '</span>'
         : '<span class="t-src">网易</span>';
       row.innerHTML =
         '<span class="t-name">' + esc(item.name) + '</span>' +
@@ -292,7 +293,7 @@
   function sourceLabelOf(it) {
     if (!it) return '';
     if (it.type === 'local') return '本地';
-    if (it.source === 'lx') return it.lxSource || 'lx';
+    if (it.source === 'ext') return it.extKey || 'ext';
     const map = { netease: '网易', qq: 'QQ', kugou: '酷狗', kuwo: '酷我', migu: '咪咕', search: '搜索' };
     return map[it.source] || it.source || '';
   }
@@ -333,7 +334,7 @@
         pr = await window.songwave.getPlayUrl({
           source: alt.source,
           id: alt.id,
-          lxSource: alt.lxSource,
+          extKey: alt.extKey,
           songmid: alt.songmid,
           hash: alt.hash,
           copyrightId: alt.copyrightId,
@@ -350,7 +351,7 @@
       const merged = Object.assign({}, item, {
         source: alt.source,
         id: alt.id,
-        lxSource: alt.lxSource,
+        extKey: alt.extKey,
         songmid: alt.songmid,
         hash: alt.hash,
         copyrightId: alt.copyrightId,
@@ -566,7 +567,7 @@
       div.textContent = line.text;
       const tr = transByTime.get(line.t);
       if (tr) div.textContent += '\n' + tr;
-      // 点击歌词跳转到对应时间（对齐 LX 的歌词跳转）
+      // 点击歌词跳转到对应时间（点击歌词跳转）
       div.dataset.t = String(line.t);
       div.title = '点击跳转到 ' + fmtTime(line.t);
       div.onclick = () => seekTo(line.t + lyricOffset);
@@ -617,7 +618,7 @@
       const r = await window.songwave.getLyric({
         source: item.source,
         id: item.id,
-        lxSource: item.lxSource,
+        extKey: item.extKey,
       });
       if (!r.ok) { renderLyric('', ''); return; }
       renderLyric(r.data.lrc || '', r.data.tlyric || '');
@@ -645,7 +646,7 @@
           clearInterval(vizWatchdog);
           vizWatchdog = null;
           if (typeof engine.initFile === 'function') {
-            try { engine.initFile(audio); setStatus('系统音频无信号，已切换直连可视化', 4000); } catch (e) { /* ignore */ }
+            try { engine.initFile(audio); vizMode = 'direct'; setStatus('系统音频无信号，已切换直连可视化', 4000); } catch (e) { /* ignore */ }
           }
         }
       } else {
@@ -657,13 +658,16 @@
     if (engineStarted) return;
     try {
       await engine.initSystemAudio();
+      vizMode = 'system';
       setStatus('可视化已连接系统音频');
-      startVizWatchdog();
+      if (!fx.enabled) startVizWatchdog();
     } catch (e) {
       if (typeof engine.initFile === 'function') engine.initFile(audio);
+      vizMode = 'direct';
       setStatus('系统音频不可用，使用直连模式');
     }
     engineStarted = true;
+    if (fx.enabled) applyEffects();
   }
   async function playCurrent() {
     if (current < 0 || current >= playlist.length) return;
@@ -688,7 +692,7 @@
       const r = await window.songwave.getPlayUrl({
         source: item.source,
         id: item.id,
-        lxSource: item.lxSource,
+        extKey: item.extKey,
         quality: item.quality,
       });
       if (!r.ok) {
@@ -772,6 +776,7 @@
     }
     updateLyricActive(audio.currentTime);
     if (dlCfg.enabled && dlLastIdx !== activeLyricIndex) { dlLastIdx = activeLyricIndex; renderDesktopLyric(); pushWallpaperSync(); }
+    if (dlCfg.enabled && dlCfg.anim === 'karaoke') updateKaraoke();
     const npc = $('np-cur'); if (npc) npc.textContent = fmtTime(audio.currentTime);
     const npt = $('np-total'); if (npt && audio.duration && Number.isFinite(audio.duration)) npt.textContent = fmtTime(audio.duration);
     const npp = $('np-progress');
@@ -843,19 +848,19 @@
     changeVolume(e.deltaY < 0 ? 5 : -5);
   }, { passive: false });
 
-  // —— lx 音源状态提示 ——
+  // —— 扩展音源状态提示 ——
   function updateLxStatus() {
-    const el = $('lx-status');
+    const el = $('ext-status');
     if (!el) return;
-    if (!window.songwave.getLxStatus) return;
-    window.songwave.getLxStatus().then((s) => {
+    if (!window.songwave.getExtStatus) return;
+    window.songwave.getExtStatus().then((s) => {
       el.classList.remove('warn');
       if (s && s.loaded) {
         el.textContent = '音源：网易云 + ' + s.name + '（' + s.sourceKeys.join(', ') + '）';
       } else if (s && s.loading) {
-        el.textContent = '音源：网易云 · lx 加载中…';
+        el.textContent = '音源：网易云 · 扩展音源加载中…';
       } else {
-        el.textContent = '音源：网易云（lx 未加载' + (s && s.error ? '：' + s.error : '') + '）';
+        el.textContent = '音源：网易云（扩展音源未加载' + (s && s.error ? '：' + s.error : '') + '）';
         el.classList.add('warn');
       }
     }).catch(() => {});
@@ -881,7 +886,7 @@
     renderPlaylist();
   };
 
-  // —— 导入外部歌单（对齐 LX：粘贴链接/文本，或从文件） ——
+  // —— 导入外部歌单（粘贴链接/文本，或从文件） ——
   const plImportBox = $('pl-import');
   function togglePlImport(show) {
     if (!plImportBox) return;
@@ -955,7 +960,7 @@
     setStatus('正在获取下载地址…', 0);
     try {
       const r = await window.songwave.getPlayUrl({
-        source: item.source, id: item.id, lxSource: item.lxSource, quality: item.quality,
+        source: item.source, id: item.id, extKey: item.extKey, quality: item.quality,
       });
       if (!r.ok) { setStatus('下载失败：' + r.error, 5000); return; }
       const dir = await ensureSaveDir();
@@ -1002,9 +1007,41 @@
         themesEl.querySelectorAll('.theme').forEach((x) => x.classList.remove('active'));
         b.classList.add('active');
         engine.setTheme(t.key);
+        // 选内置主题时关闭混搭（混搭是独立的一档主题）
+        engine.setParam('colorMix', 0);
+        bgApplyMixControls();
         saveState();
       };
       themesEl.appendChild(b);
+    });
+    // 新增：把「色彩混搭」作为一档主题（与音柱材质互不影响）
+    const mixBtn = document.createElement('button');
+    mixBtn.className = 'theme theme-mix';
+    mixBtn.dataset.key = '__mix';
+    mixBtn.textContent = '混搭（自选两色）';
+    mixBtn.onclick = () => {
+      themesEl.querySelectorAll('.theme').forEach((x) => x.classList.remove('active'));
+      mixBtn.classList.add('active');
+      const strength = Number(($('p-colormix') || {}).value) || 0.75;
+      if (!strength) engine.setParam('colorMix', 0.75);
+      else engine.setParam('colorMix', strength);
+      bgApplyMixControls();
+      const mixEl = $('p-colormix');
+      if (mixEl && !Number(mixEl.value)) { mixEl.value = '0.75'; }
+      const mv = $('v-colormix'); if (mv) mv.textContent = Math.round((Number(($('p-colormix') || {}).value) || 0.75) * 100) + '%';
+      saveState();
+    };
+    themesEl.appendChild(mixBtn);
+  }
+  /** 混搭控件与主题按钮的高亮同步（不影响音柱材质设置） */
+  function bgApplyMixControls() {
+    const on = Number(engine.getParam('colorMix')) > 0;
+    const mixEl = $('p-colormix');
+    if (mixEl) mixEl.value = String(on ? engine.getParam('colorMix') : 0);
+    const mv = $('v-colormix');
+    if (mv) mv.textContent = Math.round((on ? Number(engine.getParam('colorMix')) : 0) * 100) + '%';
+    themesEl.querySelectorAll('.theme').forEach((x) => {
+      if (x.dataset.key === '__mix') x.classList.toggle('active', on);
     });
   }
   function bindParams() {
@@ -1415,7 +1452,7 @@
     if (hc) hc.onclick = () => { history = []; saveLibrary(); renderHistory(); setStatus('播放历史已清空', 2000); };
   }
 
-  // —— 左侧功能栏（LX 风格竖向导航） ——
+  // —— 左侧功能栏（竖向导航） ——
   document.querySelectorAll('#rail .rail-btn').forEach((b) => {
     if (b.id === 'btn-wallpaper') return;   // 壁纸按钮有独立逻辑
     b.onclick = () => {
@@ -1431,7 +1468,7 @@
     };
   });
 
-  // —— 音源管理（lx 自定义源：粘贴链接导入） ——
+  // —— 音源管理（自定义音源：粘贴链接导入） ——
   const srcListEl = $('src-list');
   const srcHintEl = $('src-hint');
 
@@ -1439,7 +1476,7 @@
     if (!srcListEl) return;
     srcListEl.innerHTML = '';
     if (!items || !items.length) {
-      srcListEl.innerHTML = '<div class="we-empty">还没有音源脚本，把 lx 音源链接粘到上面点「导入」</div>';
+      srcListEl.innerHTML = '<div class="we-empty">还没有音源脚本，把 扩展音源链接粘到上面点「导入」</div>';
       if (srcHintEl) srcHintEl.textContent = '未装入音源时，QQ/酷狗/酷我/咪咕 无法播放';
       return;
     }
@@ -1518,13 +1555,13 @@
     setStatus('音源已更新：' + r.entry.name, 4000);
   }
   async function importFromLx() {
-    if (!window.songwave.srcImportLx) return;
-    setStatus('正在从 LX Music 读取音源…', 0);
-    const r = await window.songwave.srcImportLx();
-    if (!r || !r.ok) { setStatus('从 LX 导入失败：' + ((r && r.error) || ''), 8000); return; }
+    if (!window.songwave.srcImportExternal) return;
+    setStatus('正在读取外部播放器音源…', 0);
+    const r = await window.songwave.srcImportExternal();
+    if (!r || !r.ok) { setStatus('外部导入失败：' + ((r && r.error) || ''), 8000); return; }
     renderSrcItems(r.items, r.state);
     updateLxStatus();
-    setStatus('已从 LX 导入 ' + r.imported.length + ' 个音源' +
+    setStatus('已从外部播放器导入 ' + r.imported.length + ' 个音源' +
       (r.skipped && r.skipped.length ? ('（' + r.skipped.length + ' 个未成功）') : ''), 8000);
   }
   async function importFromDir() {
@@ -1560,17 +1597,184 @@
         setStatus(autoSwitch ? '已开启播放失败自动换源' : '已关闭自动换源', 2500);
       };
     }
-    const lxBtn = $('src-import-lx');
+    const lxBtn = $('src-import-external');
     if (lxBtn) lxBtn.onclick = importFromLx;
     const dirBtn = $('src-import-dir');
     if (dirBtn) dirBtn.onclick = importFromDir;
+  }
+
+  // ================= 音效（10 段 EQ + 混响） =================
+  const EQ_FALLBACK_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+  const EQ_FALLBACK_PRESETS = [
+    { key: 'off', name: '关闭（原声）', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { key: 'pop', name: '流行', gains: [-1, 0, 2, 3, 2, 0, -1, -1, 0, 1] },
+    { key: 'rock', name: '摇滚', gains: [4, 3, 1, -1, -2, -1, 1, 3, 4, 4] },
+    { key: 'classical', name: '古典', gains: [3, 2, 1, 0, -1, -1, 0, 1, 2, 3] },
+    { key: 'vocal', name: '人声增强', gains: [-2, -1, 0, 2, 4, 4, 3, 1, 0, -1] },
+    { key: 'bass', name: '低音增强', gains: [7, 6, 4, 2, 0, -1, -2, -2, -1, 0] },
+    { key: 'electronic', name: '电子', gains: [5, 4, 1, 0, -1, 0, 1, 2, 5, 6] },
+  ];
+  let fxFreqs = EQ_FALLBACK_FREQS.slice();
+  let fxPresets = EQ_FALLBACK_PRESETS.slice();
+  const fx = { enabled: false, preset: 'off', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], reverb: 0 };
+  try {
+    const saved = JSON.parse(localStorage.getItem('songwave.effects') || 'null');
+    if (saved) Object.assign(fx, saved);
+    if (!Array.isArray(fx.gains) || fx.gains.length !== 10) fx.gains = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  } catch (e) { /* ignore */ }
+  function saveFx() {
+    try { localStorage.setItem('songwave.effects', JSON.stringify(fx)); } catch (e) { /* ignore */ }
+  }
+  let fxNodes = null;
+  async function loadFxPresets() {
+    if (!window.songwave || !window.songwave.audioPresets) return;
+    try {
+      const r = await window.songwave.audioPresets();
+      if (r && r.ok) {
+        if (Array.isArray(r.freqs) && r.freqs.length === 10) fxFreqs = r.freqs;
+        if (Array.isArray(r.presets) && r.presets.length) fxPresets = r.presets;
+        renderFxControls();
+      }
+    } catch (e) { /* ignore */ }
+  }
+  function renderFxControls() {
+    const sel = $('fx-preset');
+    if (sel) {
+      sel.innerHTML = '';
+      fxPresets.forEach((p) => {
+        const o = document.createElement('option');
+        o.value = p.key;
+        o.textContent = p.name;
+        sel.appendChild(o);
+      });
+      sel.value = fx.preset;
+      sel.onchange = () => {
+        fx.preset = sel.value;
+        const p = fxPresets.find((x) => x.key === fx.preset);
+        if (p) fx.gains = p.gains.slice();
+        saveFx(); renderEqBands(); applyEffects();
+      };
+    }
+    renderEqBands();
+    const rev = $('fx-reverb');
+    if (rev) {
+      rev.value = String(fx.reverb || 0);
+      const rv = $('v-fxreverb'); if (rv) rv.textContent = Math.round((fx.reverb || 0) * 100) + '%';
+      rev.oninput = () => {
+        fx.reverb = Number(rev.value) || 0;
+        if (rv) rv.textContent = Math.round(fx.reverb * 100) + '%';
+        saveFx(); applyEffects();
+      };
+    }
+    const en = $('fx-enable');
+    if (en) {
+      en.checked = !!fx.enabled;
+      en.onchange = () => {
+        fx.enabled = !!en.checked;
+        saveFx();
+        if (fx.enabled) ensureDirectMode();
+        applyEffects();
+        setStatus(fx.enabled ? '音效已开启（EQ/混响生效）' : '音效已关闭', 2500);
+      };
+    }
+    const reset = $('fx-reset');
+    if (reset) reset.onclick = () => {
+      fx.preset = 'off';
+      fx.gains = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      fx.reverb = 0;
+      saveFx(); renderFxControls(); applyEffects();
+      setStatus('已重置为原声', 2000);
+    };
+  }
+  function renderEqBands() {
+    const box = $('eq-bands');
+    if (!box) return;
+    box.innerHTML = '';
+    fxFreqs.forEach((f, i) => {
+      const row = document.createElement('div');
+      row.className = 'eq-band';
+      const label = document.createElement('label');
+      label.textContent = f >= 1000 ? (f / 1000) + 'k' : f + 'Hz';
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = '-12'; input.max = '12'; input.step = '0.5';
+      input.value = String(fx.gains[i] == null ? 0 : fx.gains[i]);
+      const val = document.createElement('span');
+      val.className = 'eq-val';
+      val.textContent = (Number(input.value) > 0 ? '+' : '') + Number(input.value) + 'dB';
+      input.addEventListener('input', () => {
+        fx.gains[i] = Number(input.value);
+        val.textContent = (fx.gains[i] > 0 ? '+' : '') + fx.gains[i] + 'dB';
+        if (!fx.enabled) { fx.enabled = true; const en = $('fx-enable'); if (en) en.checked = true; ensureDirectMode(); }
+        saveFx(); applyEffects();
+      });
+      row.appendChild(label); row.appendChild(input); row.appendChild(val);
+      box.appendChild(row);
+    });
+  }
+  /** 音效需要走 Web Audio 直连；系统回环模式下无法处理，所以自动切直连 */
+  function ensureDirectMode() {
+    if (vizMode === 'direct') return;
+    try {
+      if (typeof engine.initFile === 'function') engine.initFile(audio);
+      vizMode = 'direct';
+      const wd = null;
+      setStatus('已切换到直连模式（音效生效）', 2500);
+    } catch (e) { /* ignore */ }
+  }
+  function applyEffects() {
+    if (!engine || typeof engine.setEffects !== 'function') return;
+    if (!fx.enabled) { try { engine.setEffects([]); } catch (e) { /* ignore */ } return; }
+    const ctx = engine.getAudioContext ? engine.getAudioContext() : null;
+    if (!ctx || typeof ctx.createBiquadFilter !== 'function') {
+      setStatus('音效不可用（音频上下文未就绪，先播放一次再开）', 4000);
+      return;
+    }
+    try {
+      const nodes = [];
+      const preamp = ctx.createGain();
+      preamp.gain.value = 1;
+      nodes.push(preamp);
+      fxFreqs.forEach((f, i) => {
+        const bq = ctx.createBiquadFilter();
+        bq.type = 'peaking';
+        bq.frequency.value = f;
+        bq.Q.value = 1;
+        bq.gain.value = Number(fx.gains[i]) || 0;
+        nodes.push(bq);
+      });
+      const out = ctx.createGain();
+      out.gain.value = 1;
+      nodes.push(out);
+      if (fx.reverb > 0 && typeof ctx.createConvolver === 'function') {
+        const conv = ctx.createConvolver();
+        const len = Math.floor((ctx.sampleRate || 44100) * 2.4);
+        const ir = ctx.createBuffer(2, len, ctx.sampleRate || 44100);
+        for (let ch = 0; ch < 2; ch++) {
+          const data = ir.getChannelData(ch);
+          for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+        }
+        conv.buffer = ir;
+        const wet = ctx.createGain();
+        wet.gain.value = Math.max(0, Math.min(1, fx.reverb)) * 0.6;
+        const last = nodes[nodes.length - 2];   // 最后一个 EQ
+        try { last.connect(conv); } catch (e) { /* ignore */ }
+        try { conv.connect(wet); } catch (e) { /* ignore */ }
+        try { wet.connect(out); } catch (e) { /* ignore */ }
+      }
+      engine.setEffects(nodes);
+      fxNodes = nodes;
+      setStatus('音效已应用（10 段 EQ' + (fx.reverb > 0 ? ' + 混响' : '') + '）', 2500);
+    } catch (e) {
+      setStatus('音效应用失败：' + (e && e.message || e), 4000);
+    }
   }
 
   // ================= 桌面歌词（沉浸 / 壁纸模式） =================
   const dlEl = $('desktop-lyric');
   const dlCfg = {
     enabled: false, pos: 'bottom', align: 'center', lines: 1, size: 30,
-    weight: 600, color: '#ffffff', font: 'system', shadow: true,
+    weight: 600, color: '#ffffff', font: 'system', shadow: true, anim: 'none',
   };
   try {
     const saved = JSON.parse(localStorage.getItem('songwave.desktoplyric') || 'null');
@@ -1586,6 +1790,8 @@
     ['left', 'center', 'right'].forEach((a) => dlEl.classList.remove('al-' + a));
     dlEl.classList.add('pos-' + dlCfg.pos);
     dlEl.classList.add('al-' + dlCfg.align);
+    ['none', 'breath', 'karaoke', 'pulse', 'neon'].forEach((a) => dlEl.classList.remove('anim-' + a));
+    dlEl.classList.add('anim-' + (dlCfg.anim || 'none'));
     dlEl.classList.toggle('dl-shadow', !!dlCfg.shadow);
     dlEl.classList.remove('hidden');
     dlEl.classList.toggle('on', !!dlCfg.enabled);
@@ -1594,6 +1800,7 @@
     const chk = (id, v) => { const el = $(id); if (el) el.checked = !!v; };
     set('dl-pos', dlCfg.pos); set('dl-align', dlCfg.align); set('dl-lines', String(dlCfg.lines));
     set('dl-size', dlCfg.size); set('dl-weight', dlCfg.weight); set('dl-color', dlCfg.color); set('dl-font', dlCfg.font);
+    set('dl-anim', dlCfg.anim || 'none');
     chk('dl-enable', dlCfg.enabled); chk('dl-shadow', dlCfg.shadow);
     const sv = $('v-dlsize'); if (sv) sv.textContent = dlCfg.size + 'px';
     const wv = $('v-dlweight'); if (wv) wv.textContent = String(dlCfg.weight);
@@ -1637,7 +1844,19 @@
       if (!p.text) return;
       const d = document.createElement('div');
       d.className = 'dl-line ' + p.cls;
-      d.textContent = p.text;
+      if (dlCfg.anim === 'karaoke' && p.cls === 'dl-cur') {
+        // 逐字扫过：按字拆 span，随进度点亮
+        dlChars = [];
+        String(p.text).split('').forEach((ch) => {
+          const sp = document.createElement('span');
+          sp.className = 'dl-char';
+          sp.textContent = ch;
+          d.appendChild(sp);
+          dlChars.push(sp);
+        });
+      } else {
+        d.textContent = p.text;
+      }
       d.style.fontSize = dlCfg.size + 'px';
       d.style.fontWeight = String(dlCfg.weight);
       d.style.color = dlCfg.color;
@@ -1645,8 +1864,47 @@
       dlEl.appendChild(d);
     });
   }
-  /** 把当前参数 + 桌面歌词推给壁纸层窗口 */
-  function pushWallpaperSync() {
+  let dlChars = [];
+  /** 逐字扫过：按当前句进度点亮字符 */
+  function updateKaraoke() {
+    if (!dlCfg.enabled || dlCfg.anim !== 'karaoke' || !dlChars.length) return;
+    const pair = currentLyricPair();
+    const cur = pair.cur;
+    if (!cur) return;
+    const start = cur.t;
+    const end = pair.next ? pair.next.t : (start + 4);
+    const dur = Math.max(0.6, end - start);
+    const prog = Math.max(0, Math.min(1, ((audio.currentTime || 0) - lyricOffset - start) / dur));
+    const hit = Math.floor(prog * dlChars.length);
+    for (let i = 0; i < dlChars.length; i++) dlChars[i].classList.toggle('hit', i < hit);
+  }
+
+  /** 面板分组折叠：每组可展开/收起，状态持久化 */
+  function bindPanelCollapse() {
+    let collapsed = [];
+    try { collapsed = JSON.parse(localStorage.getItem('songwave.panelCollapsed') || '[]') || []; } catch (e) { collapsed = []; }
+    const groups = document.querySelectorAll('#panel .panel-group');
+    if (!groups || !groups.forEach) return;
+    groups.forEach((g, i) => {
+      const title = g.querySelector ? g.querySelector('.panel-title') : null;
+      if (!title) return;
+      const key = String((title.textContent || '').trim()).slice(0, 14) || ('g' + i);
+      g.dataset.groupKey = key;
+      if (collapsed.indexOf(key) >= 0) g.classList.add('collapsed');
+      title.classList.add('collapsible');
+      title.onclick = (ev) => {
+        if (ev && ev.target && ev.target.tagName === 'BUTTON') return;  // 不吞掉刷新按钮
+        g.classList.toggle('collapsed');
+        const now = [];
+        document.querySelectorAll('#panel .panel-group').forEach((x) => {
+          if (x.classList.contains('collapsed')) now.push(x.dataset.groupKey);
+        });
+        try { localStorage.setItem('songwave.panelCollapsed', JSON.stringify(now)); } catch (e) { /* ignore */ }
+      };
+    });
+  }
+
+  /** 把当前参数 + 桌面歌词推给壁纸层窗口 */  function pushWallpaperSync() {
     if (IS_WALLPAPER || !window.songwave || !window.songwave.pushWallpaperParams) return;
     if (!wallpaperOn) return;
     const pair = currentLyricPair();
@@ -1690,6 +1948,7 @@
     bindChk('dl-enable', 'enabled');
     bindChk('dl-shadow', 'shadow');
     bindSel('dl-pos', 'pos'); bindSel('dl-align', 'align'); bindSel('dl-font', 'font');
+    bindSel('dl-anim', 'anim');
     const linesEl = $('dl-lines');
     if (linesEl) linesEl.addEventListener('change', () => {
       dlCfg.lines = Number(linesEl.value) === 2 ? 2 : 1;
@@ -1814,6 +2073,9 @@
         document.querySelectorAll('#src-chips .chip').forEach((x) => x.classList.toggle('active', x.dataset.src === curSource));
       }
     } catch (e) { /* ignore */ }
+    bindPanelCollapse();
+    renderFxControls();
+    loadFxPresets();
     applyDlStyle();
     bindDesktopLyric();
     renderDesktopLyric();

@@ -1,8 +1,8 @@
-// 声浪 SongWave · LX 用户音源脚本适配层
-// 把 lx-runtime 加载的脚本包装成 SongWave 音源接口：search() / getPlayUrl() / getLyric()
+// 声浪 SongWave · 扩展音源脚本适配层
+// 把 script-runtime 加载的脚本包装成 SongWave 音源接口：search() / getPlayUrl() / getLyric()
 'use strict';
 
-const { loadScript } = require('./lx-runtime');
+const { loadScript } = require('./script-runtime');
 
 const DEFAULT_QUALITY = '128k';
 
@@ -22,8 +22,8 @@ function normalizeMusic(item, sourceKey) {
     cover: img || item.pic || '',
     durationMs: durationMs > 0 ? durationMs : 0,
     quality: quality || DEFAULT_QUALITY,
-    source: 'lx',
-    lxSource: sourceKey,
+    source: 'ext',
+    extKey: sourceKey,
   });
 }
 
@@ -56,7 +56,7 @@ function extractLyric(result) {
 }
 
 /**
- * 加载一个 LX 用户音源脚本（异步：等待脚本 inited 声明）
+ * 加载一个 扩展音源脚本（异步：等待脚本 inited 声明）
  * @param {string} scriptPath
  * @param {object} [options] { requestImpl, name, version, author, homepage, initTimeoutMs }
  * @returns {Promise<object>}
@@ -96,7 +96,7 @@ async function createLxSource(scriptPath, options = {}) {
           .filter(Boolean);
         out.push(...items);
       } catch (err) {
-        console.warn(`[lx] ${key} search 失败:`, err && err.message);
+        console.warn(`[ext-source] ${key} search 失败:`, err && err.message);
       }
     }
     return out.slice(0, limit);
@@ -119,7 +119,7 @@ async function createLxSource(scriptPath, options = {}) {
     const base = typeof idOrInfo === 'string' ? { id: idOrInfo } : Object.assign({}, idOrInfo);
     const result = await dispatchFor(sourceKey, 'lyric', { musicInfo: base });
     const lrc = extractLyric(result);
-    return { lrc, tlyric: '', lxSource: sourceKey };
+    return { lrc, tlyric: '', extKey: sourceKey };
   }
 
   return {

@@ -1,4 +1,4 @@
-// 声浪 SongWave · 外部歌单导入（对齐 LX Music 的“导入外部歌单”）
+// 声浪 SongWave · 外部歌单导入（对齐 外部播放器 的“导入外部歌单”）
 // 支持：
 //   1) 粘贴分享文本 / 链接（自动提取 URL 与平台，网易云 / QQ 音乐）
 //   2) 纯文本歌单（每行「歌名 - 歌手」）→ 生成待解析条目，播放时用当前音源搜索后播放
@@ -35,7 +35,7 @@ function parsePlaylistUrl(url) {
       const m = u.pathname.match(/playlist\/(\d+)/);
       if (m) id = m[1];
     }
-    if (id) return { platform: 'qq', id, source: 'qq', lxSource: 'tx' };
+    if (id) return { platform: 'qq', id, source: 'qq', extKey: 'tx' };
   }
   return null;
 }
@@ -95,7 +95,7 @@ function mapQqPlaylist(j) {
       cover: s.albummid ? ('https://y.gtimg.cn/music/photo_new/T002R300x300M000' + s.albummid + '.jpg') : '',
       durationMs: msOf(s.interval),
       source: 'qq',
-      lxSource: 'tx',
+      extKey: 'tx',
     })).filter((x) => x.id),
   };
 }

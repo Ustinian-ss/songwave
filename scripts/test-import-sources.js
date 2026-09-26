@@ -1,12 +1,12 @@
-// 声浪 SongWave · 从 LX Music 导入音源测试（离线 fixture + 真机只读检查）
-// 用法：node scripts/test-lx-import.js
+// 声浪 SongWave · 从其它播放器导入音源测试（离线 fixture + 真机只读检查）
+// 用法：node scripts/test-import-sources.js
 'use strict';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
 const { createSourceManager } = require('../src/sources/source-manager');
-const lxImport = require('../src/sources/lx-import');
+const lxImport = require('../src/sources/import-sources');
 
 let pass = 0, fail = 0;
 function check(name, cond, detail) {
@@ -27,10 +27,10 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'songwave-lximport-'));
 
 (async () => {
   try {
-    // 1) 压缩格式编解码（LX 存的是 gz_ + base64(zlib)）
+    // 1) 压缩格式编解码（外部播放器存的是 gz_ + base64(zlib)）
     const compressed = 'gz_' + zlib.deflateSync(Buffer.from(FAKE_SCRIPT, 'utf8')).toString('base64');
     const decoded = lxImport.decodeLxScript(compressed);
-    check('能解开 LX 的 gz_ 压缩脚本', decoded.indexOf('@name 测试音源') >= 0, decoded.slice(0, 40));
+    check('能解开外部播放器的 gz_ 压缩脚本', decoded.indexOf('@name 测试音源') >= 0, decoded.slice(0, 40));
     check('未压缩内容原样返回', lxImport.decodeLxScript('abc') === 'abc');
     const meta = lxImport.headerMeta(decoded);
     check('能从脚本头注释读出 @name/@version', meta.name === '测试音源' && meta.version === '9.9.9', JSON.stringify(meta));
@@ -53,7 +53,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'songwave-lximport-'));
     const r = await lxImport.importFromLxMusic(mgr, { file: fixture });
     check('导入成功 1 个', r.imported.length === 1, JSON.stringify(r.skipped));
     check('能力探测通过（kw 取链）', r.imported[0].ok === true && r.imported[0].sourceKeys.join(',') === 'kw', JSON.stringify(r.imported[0]));
-    check('记录了来源 lx-music', r.imported[0].from === 'lx-music');
+    check('记录了来源 外部播放器', r.imported[0].from === '外部播放器');
     check('记录了版本号（部分脚本用它做版本校验）', r.imported[0].version === '9.9.9');
 
     // 4) 加载后能真正取链
@@ -62,7 +62,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'songwave-lximport-'));
     const url = await loaded[0].source.getPlayUrl('kw', { id: 'ABC' });
     check('端到端取链成功', url === 'http://mock/kw/ABC', String(url));
 
-    // 5) 找不到 LX 数据时的报错
+    // 5) 找不到外部播放器数据时的报错
     let err = null;
     try { await lxImport.importFromLxMusic(mgr, { file: path.join(tmp, 'nope.json') }); } catch (e) { err = e.message; }
     check('文件不存在时报错清晰', /no such file|不存在|ENOENT/i.test(String(err)), String(err));
@@ -73,8 +73,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'songwave-lximport-'));
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 
-  // 6) 真机只读检查（有 LX 才断言内容）
-  console.log('\n— 本机 LX Music 音源 —');
+  // 6) 真机只读检查（有外部播放器才断言内容）
+  console.log('\n— 本机外部播放器音源 —');
   const real = lxImport.findLxUserApiFile();
   if (real) {
     const list = lxImport.readLxUserApis(real);
@@ -83,7 +83,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'songwave-lximport-'));
     check('真机读取到音源', list.length >= 1);
     check('真机脚本已解压（不是 gz_ 开头）', list.every((a) => !a.script.startsWith('gz_')));
   } else {
-    console.log('  （本机未安装 LX Music，跳过）');
+    console.log('  （本机未安装该外部播放器，跳过）');
   }
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);

@@ -1,4 +1,4 @@
-// 声浪 SongWave · 从 LX Music 一键导入音源脚本
+// 声浪 SongWave · 从其它播放器一键导入音源脚本
 // LX v2 把用户音源存在 %APPDATA%\lx-music-desktop\LxDatas\user_api.json
 // 结构：{ userApis: [ { id, name, version, author, homepage, description, script } ] }
 // 纯 Node（路径可注入），便于离线测试
@@ -81,7 +81,7 @@ function readLxUserApis(file) {
       return {
         id: String(it.id || ''),
         // 元数据优先用脚本头部注释里的 @name/@version（LX 列表里的可能不准）
-        name: head.name || String(it.name || 'lx 音源'),
+        name: head.name || String(it.name || '扩展音源'),
         version: head.version || String(it.version || ''),
         author: String(it.author || ''),
         homepage: String(it.homepage || ''),
@@ -100,7 +100,7 @@ function readLxUserApis(file) {
  */
 async function importFromLxMusic(mgr, opts = {}) {
   const file = opts.file || findLxUserApiFile(opts.extraDirs || []);
-  if (!file) throw new Error('没有找到 LX Music 的音源数据（user_api.json）');
+  if (!file) throw new Error('没有找到外部播放器的音源数据（user_api.json）');
   const all = readLxUserApis(file);
   const only = opts.only && opts.only.length ? opts.only : null;
   const picked = only ? all.filter((a) => only.includes(a.id) || only.includes(a.name)) : all;
@@ -114,7 +114,7 @@ async function importFromLxMusic(mgr, opts = {}) {
         author: api.author,
         homepage: api.homepage,
         description: api.description,
-        from: 'lx-music',
+        from: '外部播放器',
         lxId: api.id,
       });
       imported.push(entry);

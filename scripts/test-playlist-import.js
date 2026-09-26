@@ -57,7 +57,7 @@ async function main() {
   check('网易歌曲映射（含时长毫秒）', net.items.length === 2 && net.items[0].durationMs === 269000);
   check('网易歌手合并', net.items[0].artist === '周杰伦');
   const qq = mapQqPlaylist(NET_RESP['y.qq.com']);
-  check('QQ 歌曲映射并保留 songmid', qq.items[0].songmid === 'MID001' && qq.items[0].lxSource === 'tx');
+  check('QQ 歌曲映射并保留 songmid', qq.items[0].songmid === 'MID001' && qq.items[0].extKey === 'tx');
 
   // 4) 端到端（mock fetch）
   const importer = createPlaylistImporter({
