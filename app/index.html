@@ -39,6 +39,8 @@
     <button class="rail-btn" data-view="list" title="播放列表">☰</button>
     <button class="rail-btn" data-view="favorites" title="我喜欢">♥</button>
     <button class="rail-btn" data-view="history" title="播放历史">🕘</button>
+    <button class="rail-btn" data-view="discover" title="发现（排行榜 / 推荐歌单）">📻</button>
+    <button class="rail-btn" data-view="playlists" title="我的歌单">🎵</button>
     <button class="rail-btn" data-view="lyric" title="歌词">♪</button>
     <button class="rail-btn" id="btn-wallpaper" data-view="wallpaper" title="壁纸/沉浸模式（Esc 或 W 退出，桌面层 Ctrl+Alt+W）">🖼</button>
     <button class="rail-btn" data-view="panel" title="设置 / 音源管理">⚙</button>
@@ -82,6 +84,28 @@
         </div>
       </div>
       <div id="playlist" class="vlist"></div>
+    </div>
+    <div class="side-body hidden" id="side-discover">
+      <div class="row chips" id="chart-platforms">
+        <button class="btn chip active" data-plat="netease">网易云</button>
+        <button class="btn chip" data-plat="qq">QQ</button>
+        <button class="btn chip" data-plat="kugou">酷狗</button>
+      </div>
+      <div class="list-tools">
+        <button class="btn" id="btn-recommend">✨ 推荐歌单</button>
+        <button class="btn" id="btn-charts-refresh">↻ 榜单</button>
+      </div>
+      <div id="chart-list" class="vlist"></div>
+      <div id="chart-songs" class="vlist"></div>
+    </div>
+
+    <div class="side-body hidden" id="side-playlists">
+      <div class="search-row">
+        <input id="new-playlist-name" placeholder="新建歌单名称" spellcheck="false">
+        <button class="btn btn-primary" id="btn-create-playlist">新建</button>
+      </div>
+      <div id="playlists" class="vlist"></div>
+      <div id="playlist-songs" class="vlist"></div>
     </div>
     <div class="side-body hidden" id="side-lyric">
       <div class="lyric-tools">
@@ -401,17 +425,74 @@
             <option value="KaiTi">楷体</option>
           </select>
         </div>
+        <div class="param row-inline">
+          <label><input type="checkbox" id="dl-window"> 独立浮窗（可自由拖动）</label>
+          <label><input type="checkbox" id="dl-winlock"> 锁定穿透</label>
+        </div>
+        <div class="param row-inline">
+          <label><input type="checkbox" id="lyr-trans" checked> 翻译</label>
+          <label><input type="checkbox" id="lyr-roma"> 罗马音</label>
+        </div>
+        <div class="param">
+          <label>汉字显示</label>
+          <select id="lyr-zh">
+            <option value="off">原文</option>
+            <option value="s2t">转繁体</option>
+            <option value="t2s">转简体</option>
+          </select>
+        </div>
         <div class="param">
           <label>歌词动效</label>
           <select id="dl-anim">
-            <option value="none">无</option>
-            <option value="breath">呼吸</option>
+            <option value="none">无</option>            <option value="breath">呼吸</option>
             <option value="karaoke">逐字扫过</option>
             <option value="pulse">律动缩放</option>
             <option value="neon">霓虹发光</option>
           </select>
         </div>
       </div>
+
+      <!-- 下载增强 -->
+      <div class="panel-group">
+        <div class="panel-title">下载增强</div>
+        <div class="param">
+          <label>命名模板（{name} {artist} {album} {index} {quality} {date}）</label>
+          <input id="dl-template" class="text-input" value="{artist} - {name}" spellcheck="false">
+        </div>
+        <div class="param">
+          <label>并发数</label>
+          <select id="dl-concurrency">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3" selected>3</option>
+            <option value="4">4</option>
+            <option value="6">6</option>
+          </select>
+        </div>
+        <div class="param row-inline">
+          <label><input type="checkbox" id="dl-group" checked> 按歌单分组</label>
+          <label><input type="checkbox" id="dl-lyric" checked> 保存歌词文件</label>
+        </div>
+        <div class="param row-inline">
+          <label><input type="checkbox" id="dl-embed-cover" checked> 嵌入封面</label>
+          <label><input type="checkbox" id="dl-embed-lyric" checked> 嵌入歌词</label>
+        </div>
+        <div class="row src-tools">
+          <button class="btn btn-primary" id="btn-dl-all">下载播放列表全部</button>
+          <button class="btn" id="btn-dl-cancel">取消</button>
+        </div>
+        <div class="src-hint" id="dl-progress"></div>
+      </div>
+
+      <!-- 系统托盘 -->
+      <div class="panel-group">
+        <div class="panel-title">系统托盘</div>
+        <div class="param row-inline">
+          <label><input type="checkbox" id="tray-enable" checked> 启用托盘图标</label>
+          <label><input type="checkbox" id="tray-close"> 关闭窗口时最小化到托盘</label>
+        </div>
+      </div>
+
       <div class="panel-group">
         <div class="panel-title">提示文字</div>
         <input type="text" id="hint-input" placeholder="输入自定义提示文字">

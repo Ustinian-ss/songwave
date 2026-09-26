@@ -73,6 +73,14 @@ let lastSrcAdd = null;
 let lastLxImport = false;
 let lastPlImport = null;
 let lastAltQuery = null;
+let lastCharts = null;
+let lastTray = null;
+const trayCalls = [];
+let lastLyricWin = null;
+let lastLyricPush = null;
+let lastDlBatch = null;
+let lyricStateCb = null;
+let trayCmdCb = null;
 let altEmpty = false;
 let altAllFail = false;
 const failSources = new Set();
@@ -85,7 +93,7 @@ const chipEls = ['netease', 'qq', 'kugou', 'kuwo', 'migu'].map((s) => ({
   classList: { set: new Set(s === 'netease' ? ['active'] : []), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { const on = f === undefined ? !this.set.has(c) : !!f; if (on) this.set.add(c); else this.set.delete(c); return on; }, contains(c) { return this.set.has(c); } },
   onclick: null,
 }));
-const railEls = ['search', 'list', 'favorites', 'history', 'lyric', 'panel'].map((v) => ({
+const railEls = ['search', 'list', 'favorites', 'history', 'lyric', 'discover', 'playlists', 'panel'].map((v) => ({
   id: 'rail-' + v,
   dataset: { view: v },
   classList: { set: new Set(v === 'search' ? ['active'] : []), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { const on = f === undefined ? !this.set.has(c) : !!f; if (on) this.set.add(c); else this.set.delete(c); return on; }, contains(c) { return this.set.has(c); } },
@@ -160,6 +168,22 @@ const sandbox = {
         const host = src === 'qq' ? 'http://dl.stream.qqmusic.qq.com/' : 'https://music.163.com/song/media/outer/url?id=';
         return { ok: true, url: host + (obj && obj.id !== undefined ? obj.id : obj) + '.mp3' };
       },
+      zhTables: async () => ({ ok: true, s: '这个项目很不错', t: '這個項目很不錯', phrases: [['头发', '頭髮']] }),
+      charts: async (p) => {
+        lastCharts = p;
+        if (p.action === 'list') return { ok: true, lists: { netease: [{ id: '1', name: '热歌榜', platform: 'netease' }], qq: [], kugou: [] } };
+        if (p.action === 'recommend') return { ok: true, items: [{ id: '9', name: '夏日歌单', cover: 'http://c/x.jpg', trackCount: 20 }] };
+        return { ok: true, data: { name: '热歌榜', items: [{ id: '11', name: '晴天', artist: '周杰伦', source: 'netease' }, { id: '12', name: '夜曲', artist: '周杰伦', source: 'netease' }] } };
+      },
+      tray: async (p) => { lastTray = p; trayCalls.push(p); return { ok: true, on: p.action !== 'off' }; },
+      lyricWindow: async (p) => { lastLyricWin = p; return { ok: true, on: p.on !== false }; },
+      lyricPush: async (p) => { lastLyricPush = p; return { ok: true }; },
+      lyricWindowStatus: async () => ({ ok: true, on: false }),
+      onLyricWindowData: () => {},
+      onLyricWindowState: (cb) => { lyricStateCb = cb; },
+      onTrayCommand: (cb) => { trayCmdCb = cb; },
+      downloadBatch: async (p) => { lastDlBatch = p; return { ok: true, results: [], errors: [], summary: { ok: (p.items || []).length, failed: 0 } }; },
+      cancelDownloadBatch: async () => ({ ok: true }),
       audioPresets: async () => ({
         ok: true,
         freqs: [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000],
@@ -580,6 +604,71 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     fxEn.checked = false;
     fxEn.onchange();
     check('关闭音效清空效果链', Array.isArray(engineStub.effects) && engineStub.effects.length === 0);
+
+    // 30) 发现页：榜单 / 推荐歌单
+    railEls.find((x) => x.dataset.view === 'discover').onclick();
+    await flush(); await flush();
+    check('切到发现页并请求榜单', !!lastCharts && lastCharts.action === 'list');
+    check('榜单列表已渲染', ids['chart-list']._children.length >= 2, String(ids['chart-list']._children.length));
+    ids['chart-list']._children[1].onclick();
+    await flush(); await flush();
+    check('点击榜单载入歌曲', !!lastCharts && lastCharts.action === 'chart');
+    check('榜单歌曲已渲染（含播放全部）', ids['chart-songs']._children.length >= 3, String(ids['chart-songs']._children.length));
+    doc.getElementById('btn-recommend').onclick();
+    await flush(); await flush();
+    check('推荐歌单已加载', /推荐歌单/.test(ids['chart-list']._children[0].textContent || ''), ids['chart-list']._children[0].textContent);
+
+    // 31) 我的歌单（多歌单管理）
+    railEls.find((x) => x.dataset.view === 'playlists').onclick();
+    await flush();
+    check('默认歌单已生成', ids['playlists']._children.length >= 1, String(ids['playlists']._children.length));
+    doc.getElementById('new-playlist-name').value = '通勤歌单';
+    doc.getElementById('btn-create-playlist').onclick();
+    check('新建歌单生效', ids['playlists']._children.length >= 2, String(ids['playlists']._children.length));
+    check('歌单已持久化', /通勤歌单/.test(String(sandbox.localStorage._d['songwave.playlists'] || '')), String(sandbox.localStorage._d['songwave.playlists']).slice(0, 60));
+
+    // 32) 系统托盘
+    const trayOnCall = trayCalls.find((c) => c && c.action === 'on');
+    check('托盘已启用并下发选项', !!trayOnCall, JSON.stringify(trayCalls.slice(0, 3)));
+    check('托盘带关闭最小化选项', !!(trayOnCall && trayOnCall.options), JSON.stringify(trayOnCall && trayOnCall.options));
+    check('托盘命令回调已注册', typeof trayCmdCb === 'function');
+    if (trayCmdCb) { audioEl.paused = true; trayCmdCb('toggle'); check('托盘命令可控制播放', audioEl.paused === false); }
+
+    // 33) 独立桌面歌词浮窗
+    const dlWin = doc.getElementById('dl-window');
+    dlWin.checked = true;
+    dlWin.onchange();
+    await flush(); await flush();
+    check('浮窗开关已下发主进程', !!lastLyricWin && lastLyricWin.on === true, JSON.stringify(lastLyricWin));
+    check('浮窗带样式参数', !!(lastLyricWin && lastLyricWin.style && lastLyricWin.style.size > 0));
+    check('歌词已推送到浮窗', !!lastLyricPush && typeof lastLyricPush.text === 'string', JSON.stringify(lastLyricPush && lastLyricPush.text));
+    check('浮窗状态回调已注册', typeof lyricStateCb === 'function');
+    if (lyricStateCb) { lyricStateCb(true); check('浮窗状态可同步到开关', doc.getElementById('dl-window').checked === true); }
+
+    // 34) 歌词 翻译 / 罗马音 / 简繁
+    const romaCb = doc.getElementById('lyr-roma');
+    romaCb.checked = true;
+    romaCb.onchange();
+    check('罗马音选项已持久化', /"roma":true/.test(String(sandbox.localStorage._d['songwave.lyropts'] || '')), String(sandbox.localStorage._d['songwave.lyropts']));
+    const zhSel = doc.getElementById('lyr-zh');
+    zhSel.value = 's2t';
+    await zhSel.onchange();
+    check('简繁选项已持久化', /"zh":"s2t"/.test(String(sandbox.localStorage._d['songwave.lyropts'] || '')), String(sandbox.localStorage._d['songwave.lyropts']));
+    check('切简繁后歌词已重绘', ids['lyric']._children.length >= 1, String(ids['lyric']._children.length));
+
+    // 35) 批量下载（模板 / 并发 / 分组 / 歌词 / 封面）
+    doc.getElementById('dl-template').value = '{index}. {artist} - {name}';
+    doc.getElementById('dl-group').checked = true;
+    doc.getElementById('dl-lyric').checked = true;
+    doc.getElementById('dl-embed-cover').checked = true;
+    doc.getElementById('dl-embed-lyric').checked = true;
+    doc.getElementById('dl-concurrency').value = '4';
+    doc.getElementById('btn-dl-all').onclick();
+    await flush(); await flush(); await flush();
+    check('批量下载已下发任务', !!lastDlBatch && Array.isArray(lastDlBatch.items) && lastDlBatch.items.length >= 1, JSON.stringify(lastDlBatch && lastDlBatch.items.length));
+    check('批量下载带自定义模板', !!lastDlBatch && lastDlBatch.options.template === '{index}. {artist} - {name}', JSON.stringify(lastDlBatch && lastDlBatch.options));
+    check('并发数已传入', !!lastDlBatch && lastDlBatch.options.concurrency === 4, String(lastDlBatch && lastDlBatch.options.concurrency));
+    check('歌词与封面嵌入选项已传', !!lastDlBatch && lastDlBatch.options.saveLyric === true && lastDlBatch.options.embedCover === true);
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
     process.exit(fail ? 1 : 0);

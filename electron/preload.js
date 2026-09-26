@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('songwave', {
   srcUpdate: (id) => ipcRenderer.invoke('songwave-src-update', id),
   altSources: (payload) => ipcRenderer.invoke('songwave-alt-sources', payload),
   audioPresets: () => ipcRenderer.invoke('songwave-audio-presets'),
+  zhTables: () => ipcRenderer.invoke('songwave-zh-tables'),
   playlistImport: (payload) => ipcRenderer.invoke('songwave-playlist-import', payload),
   playlistImportFile: () => ipcRenderer.invoke('songwave-playlist-import-file'),
 });

@@ -126,8 +126,12 @@
     $('side-list').classList.toggle('hidden', key !== 'list');
     $('side-lyric').classList.toggle('hidden', key !== 'lyric');
     const fav = $('side-favorites'); if (fav) fav.classList.toggle('hidden', key !== 'favorites');
+    const dis = $('side-discover'); if (dis) dis.classList.toggle('hidden', key !== 'discover');
+    const pls = $('side-playlists'); if (pls) pls.classList.toggle('hidden', key !== 'playlists');
     const his = $('side-history'); if (his) his.classList.toggle('hidden', key !== 'history');
     if (key === 'favorites') renderFavorites();
+    if (key === 'discover') loadCharts();
+    if (key === 'playlists') { renderMyPlaylists(); renderMyPlaylistSongs(); }
     if (key === 'history') renderHistory();
     // 功能栏高亮同步
     document.querySelectorAll('#rail .rail-btn').forEach((b) => {
@@ -548,10 +552,11 @@
     });
     return out.sort((a, b) => a.t - b.t);
   }
-  function renderLyric(main, trans) {
+  function renderLyric(main, trans, roma) {
     lyricEl.innerHTML = '';
     lyricLines = parseLrc(main);
     activeLyricIndex = -1;
+    lyricRaw = { main: main || '', trans: trans || '', roma: roma || '' };
     if (!lyricLines.length) {
       lyricEl.innerHTML = '<div class="lyric-empty">暂无歌词</div>';
       return;
@@ -560,13 +565,16 @@
     parseLrc(trans).forEach((l) => { if (!transByTime.has(l.t)) transByTime.set(l.t, l.text); });
     transMap.clear();
     transByTime.forEach((v, k) => transMap.set(k, v));
+    const romaByTime = new Map();
+    parseLrc(roma).forEach((l) => { if (!romaByTime.has(l.t)) romaByTime.set(l.t, l.text); });
+    romaMap.clear();
+    romaByTime.forEach((v, k) => romaMap.set(k, v));
     if (isNowPlayingOpen()) renderOverlayLyric();
     lyricLines.forEach((line, i) => {
       const div = document.createElement('div');
       div.className = 'lyric-line';
-      div.textContent = line.text;
-      const tr = transByTime.get(line.t);
-      if (tr) div.textContent += '\n' + tr;
+      div.textContent = composeLyricLine(line, transByTime, romaByTime);
+      // 翻译 / 罗马音 / 简繁 由 composeLyricLine 统一组合
       // 点击歌词跳转到对应时间（点击歌词跳转）
       div.dataset.t = String(line.t);
       div.title = '点击跳转到 ' + fmtTime(line.t);
@@ -575,6 +583,12 @@
     });
     updateLyricToolbar();
   }
+  /** 歌词选项变化时用缓存重绘（不重新请求） */
+  function renderLyricFromCache() {
+    if (!lyricRaw || !lyricRaw.main) return;
+    renderLyric(lyricRaw.main, lyricRaw.trans, lyricRaw.roma);
+  }
+
   function updateLyricToolbar() {
     const el = $('lyric-offset-val');
     if (el) el.textContent = (lyricOffset > 0 ? '+' : '') + lyricOffset.toFixed(1) + 's';
@@ -621,7 +635,7 @@
         extKey: item.extKey,
       });
       if (!r.ok) { renderLyric('', ''); return; }
-      renderLyric(r.data.lrc || '', r.data.tlyric || '');
+      renderLyric(r.data.lrc || '', r.data.tlyric || '', r.data.romalrc || '');
     } catch (e) {
       renderLyric('', '');
     }
@@ -708,6 +722,7 @@
     const saved = progressMap[trackKey(item)];
     if (saved && saved > 10) pendingSeek = saved;
     pushHistory(item);
+    updateTrayTooltip();
     updateFavButton();
     try { audio.preservesPitch = true; } catch (e) { /* ignore */ }
     applyRate(RATES[rateIdx]);
@@ -775,7 +790,7 @@
       $('progress').value = Math.round((audio.currentTime / audio.duration) * 1000);
     }
     updateLyricActive(audio.currentTime);
-    if (dlCfg.enabled && dlLastIdx !== activeLyricIndex) { dlLastIdx = activeLyricIndex; renderDesktopLyric(); pushWallpaperSync(); }
+    if (dlCfg.enabled && dlLastIdx !== activeLyricIndex) { dlLastIdx = activeLyricIndex; renderDesktopLyric(); pushWallpaperSync(); pushLyricWindowData(); }
     if (dlCfg.enabled && dlCfg.anim === 'karaoke') updateKaraoke();
     const npc = $('np-cur'); if (npc) npc.textContent = fmtTime(audio.currentTime);
     const npt = $('np-total'); if (npt && audio.duration && Number.isFinite(audio.duration)) npt.textContent = fmtTime(audio.duration);
@@ -1458,7 +1473,7 @@
     b.onclick = () => {
       const view = b.dataset.view;
       document.querySelectorAll('#rail .rail-btn').forEach((x) => x.classList.toggle('active', x === b));
-      if (view === 'search' || view === 'list' || view === 'lyric' || view === 'favorites' || view === 'history') {
+      if (view === 'search' || view === 'list' || view === 'lyric' || view === 'favorites' || view === 'history' || view === 'discover' || view === 'playlists') {
         switchTab(view);
       } else if (view === 'panel') {
         const p = $('panel');
@@ -1969,6 +1984,8 @@
   const npDiscEl = $('np-disc');
   const npLyricEl = $('np-lyric');
   const transMap = new Map();
+  const romaMap = new Map();
+  let lyricRaw = { main: '', trans: '', roma: '' };
   // 无封面时的占位图（避免左下角一直是一块黑）
   const COVER_PLACEHOLDER = 'data:image/svg+xml;utf8,' + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">' +
@@ -2055,7 +2072,387 @@
     });
   }
 
+  // ================= v2.0.0：发现页（排行榜 / 推荐歌单） =================
+  let curChartPlatform = 'netease';
+
+  function renderChartList(lists) {
+    const box = $('chart-list');
+    if (!box) return;
+    box.innerHTML = '';
+    const arr = (lists && lists[curChartPlatform]) || [];
+    if (!arr.length) { box.innerHTML = '<div class="we-empty">暂无榜单</div>'; return; }
+    const head = document.createElement('div');
+    head.className = 'sh-head';
+    head.textContent = '排行榜';
+    box.appendChild(head);
+    arr.forEach((c) => {
+      const row = document.createElement('div');
+      row.className = 'track';
+      row.innerHTML = '<span class="t-name">' + esc(c.name) + '</span><span class="t-src">' + esc(sourceLabelOf({ source: c.platform })) + '</span><button class="t-remove" title="载入榜单">＋</button>';
+      row.onclick = () => loadChartSongs(c.platform, c.id, c.name);
+      box.appendChild(row);
+    });
+  }
+
+  async function loadCharts() {
+    if (!window.songwave.charts) return;
+    const box = $('chart-list');
+    if (box) box.innerHTML = '<div class="we-empty">正在获取榜单…</div>';
+    const r = await window.songwave.charts({ action: 'list' });
+    if (!r || !r.ok) { if (box) box.innerHTML = '<div class="we-empty">榜单获取失败：' + esc((r && r.error) || '') + '</div>'; return; }
+    renderChartList(r.lists);
+  }
+
+  function renderSongRows(containerId, items, label) {
+    const box = $(containerId);
+    if (!box) return;
+    box.innerHTML = '';
+    if (!items || !items.length) { box.innerHTML = '<div class="we-empty">没有内容</div>'; return; }
+    const head = document.createElement('div');
+    head.className = 'sh-head';
+    const title = document.createElement('span');
+    title.textContent = (label || '') + ' · ' + items.length + ' 首';
+    const playAll = document.createElement('button');
+    playAll.className = 'sh-clear';
+    playAll.textContent = '播放全部';
+    playAll.onclick = () => {
+      playlist = playlist.concat(items);
+      current = playlist.length - items.length;
+      renderPlaylist(); playCurrent(); switchTab('list');
+      setStatus('已加入 ' + items.length + ' 首并开始播放', 3000);
+    };
+    head.appendChild(title); head.appendChild(playAll);
+    box.appendChild(head);
+    items.forEach((it, i) => {
+      const row = document.createElement('div');
+      row.className = 'track';
+      row.innerHTML =
+        '<span class="t-idx">' + (i + 1) + '</span>' +
+        '<span class="t-name">' + esc(it.name) + '</span>' +
+        '<span class="t-artist">' + esc(it.artist || '') + '</span>' +
+        '<button class="t-dl" title="加入播放列表">＋</button>';
+      row.onclick = () => { playlist.push(it); renderPlaylist(); setStatus('已加入：' + it.name, 2000); };
+      const add = row.querySelector('.t-dl');
+      if (add) add.onclick = (e) => { e.stopPropagation(); playlist.push(it); renderPlaylist(); switchTab('list'); };
+      box.appendChild(row);
+    });
+  }
+
+  async function loadChartSongs(platform, id, name) {
+    if (!window.songwave.charts) return;
+    setStatus('正在载入：' + name, 0);
+    const r = await window.songwave.charts({ action: 'chart', platform, id, limit: 50 });
+    if (!r || !r.ok) { setStatus('载入失败：' + ((r && r.error) || ''), 5000); return; }
+    renderSongRows('chart-songs', (r.data && r.data.items) || [], (r.data && r.data.name) || name);
+    setStatus('已载入 ' + ((r.data && r.data.items.length) || 0) + ' 首', 2500);
+  }
+
+  async function loadRecommend() {
+    if (!window.songwave.charts) return;
+    const box = $('chart-list');
+    if (box) box.innerHTML = '<div class="we-empty">正在获取推荐歌单…</div>';
+    const r = await window.songwave.charts({ action: 'recommend', limit: 12 });
+    if (!r || !r.ok) { if (box) box.innerHTML = '<div class="we-empty">推荐获取失败</div>'; return; }
+    box.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'sh-head';
+    head.textContent = '推荐歌单（点击载入）';
+    box.appendChild(head);
+    (r.items || []).forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'track';
+      row.innerHTML = (p.cover ? '<img class="chart-cover" src="' + esc(p.cover) + '" alt="">' : '') +
+        '<span class="t-name">' + esc(p.name) + '</span>' +
+        '<span class="t-artist">' + (p.trackCount ? p.trackCount + ' 首' : '') + '</span>';
+      row.onclick = () => loadChartSongs('netease', p.id, p.name);
+      box.appendChild(row);
+    });
+    setStatus('推荐歌单已更新', 2000);
+  }
+
+  // ================= v2.0.0：我的歌单（多歌单管理） =================
+  let myPlaylists = [];
+  let curMyPlaylistId = '';
+
+  function loadMyPlaylists() {
+    try {
+      const a = JSON.parse(localStorage.getItem('songwave.playlists') || 'null');
+      myPlaylists = Array.isArray(a) ? a : [];
+    } catch (e) { myPlaylists = []; }
+    if (!myPlaylists.length) {
+      myPlaylists = [{ id: 'pl-' + Date.now(), name: '我的收藏夹', songs: [] }];
+      saveMyPlaylists();
+    }
+  }
+  function saveMyPlaylists() {
+    try { localStorage.setItem('songwave.playlists', JSON.stringify(myPlaylists)); } catch (e) { /* ignore */ }
+  }
+  function renderMyPlaylists() {
+    const box = $('playlists');
+    if (!box) return;
+    box.innerHTML = '';
+    myPlaylists.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'track' + (p.id === curMyPlaylistId ? ' active' : '');
+      row.innerHTML = '<span class="t-name">' + esc(p.name) + '</span>' +
+        '<span class="t-artist">' + (p.songs || []).length + ' 首</span>' +
+        '<span class="pl-actions"><button class="t-dl" title="播放">▶</button>' +
+        '<button class="t-dl" title="重命名">✎</button>' +
+        '<button class="t-remove" title="删除">✕</button></span>';
+      row.onclick = () => { curMyPlaylistId = p.id; renderMyPlaylists(); renderMyPlaylistSongs(); };
+      const [playBtn, renameBtn, delBtn] = Array.prototype.slice.call(row.querySelectorAll('.t-dl, .t-remove'));
+      if (playBtn) playBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (!p.songs || !p.songs.length) { setStatus('歌单是空的', 2000); return; }
+        playlist = playlist.concat(p.songs);
+        current = playlist.length - p.songs.length;
+        renderPlaylist(); playCurrent(); switchTab('list');
+      };
+      if (renameBtn) renameBtn.onclick = (e) => {
+        e.stopPropagation();
+        const name = prompt('重命名歌单', p.name);
+        if (name && name.trim()) { p.name = name.trim(); saveMyPlaylists(); renderMyPlaylists(); setStatus('已重命名', 1800); }
+      };
+      if (delBtn) delBtn.onclick = (e) => {
+        e.stopPropagation();
+        myPlaylists = myPlaylists.filter((x) => x.id !== p.id);
+        if (curMyPlaylistId === p.id) curMyPlaylistId = '';
+        saveMyPlaylists(); renderMyPlaylists(); renderMyPlaylistSongs();
+        setStatus('歌单已删除', 1800);
+      };
+      box.appendChild(row);
+    });
+  }
+  function renderMyPlaylistSongs() {
+    const box = $('playlist-songs');
+    if (!box) return;
+    const p = myPlaylists.find((x) => x.id === curMyPlaylistId);
+    if (!p) { box.innerHTML = '<div class="we-empty">选择或新建一个歌单</div>'; return; }
+    renderSongRows('playlist-songs', p.songs || [], p.name);
+  }
+  /** 把当前播放的歌加进歌单 */
+  function addCurrentToPlaylist(playlistId) {
+    const it = current >= 0 ? playlist[current] : null;
+    if (!it) { setStatus('先播放一首歌', 2000); return; }
+    const p = myPlaylists.find((x) => x.id === playlistId);
+    if (!p) return;
+    p.songs = p.songs || [];
+    if (p.songs.some((x) => trackKey(x) === trackKey(it))) { setStatus('已在歌单中', 1800); return; }
+    p.songs.push(it);
+    saveMyPlaylists(); renderMyPlaylists(); renderMyPlaylistSongs();
+    setStatus('已加入歌单《' + p.name + '》', 2500);
+  }
+
+  // ================= v2.0.0：独立桌面歌词浮窗 =================
+  let lyricWinOn = false;
+  function dlStylePayload() {
+    return { size: dlCfg.size, color: dlCfg.color, font: dlCfg.font, weight: dlCfg.weight, lines: dlCfg.lines, anim: dlCfg.anim, shadow: dlCfg.shadow };
+  }
+  async function toggleLyricWindow(on) {
+    if (!window.songwave.lyricWindow) return;
+    const r = await window.songwave.lyricWindow({ on: !!on, style: dlStylePayload(), locked: !!($('dl-winlock') || {}).checked });
+    lyricWinOn = !!(r && r.on);
+    const cb = $('dl-window'); if (cb) cb.checked = lyricWinOn;
+    setStatus(lyricWinOn ? '桌面歌词浮窗已开启（可拖动）' : '桌面歌词浮窗已关闭', 3000);
+    pushLyricWindowData();
+  }
+  function pushLyricWindowData() {
+    if (!lyricWinOn || !window.songwave.lyricPush) return;
+    const pair = currentLyricPair();
+    try {
+      window.songwave.lyricPush({
+        text: dlLineText(pair.cur, false),
+        next: dlCfg.lines >= 2 ? dlLineText(pair.next, false) : '',
+        style: dlStylePayload(),
+      });
+    } catch (e) { /* ignore */ }
+  }
+
+  // ================= v2.0.0：歌词 翻译 / 罗马音 / 简繁 =================
+  const lyrOpts = { trans: true, roma: false, zh: 'off' };
+  let zhTables = null;
+  try {
+    const saved = JSON.parse(localStorage.getItem('songwave.lyropts') || 'null');
+    if (saved) Object.assign(lyrOpts, saved);
+  } catch (e) { /* ignore */ }
+  function saveLyrOpts() {
+    try { localStorage.setItem('songwave.lyropts', JSON.stringify(lyrOpts)); } catch (e) { /* ignore */ }
+  }
+  async function loadZhTables() {
+    if (zhTables || !window.songwave || !window.songwave.zhTables) return;
+    try {
+      const r = await window.songwave.zhTables();
+      if (r && r.ok) {
+        const map = new Map();
+        const a = Array.from(r.s || '');
+        const b = Array.from(r.t || '');
+        for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) map.set(a[i], b[i]);
+        const rev = new Map();
+        map.forEach((t, s) => { if (!rev.has(t)) rev.set(t, s); });
+        zhTables = { map, rev, phrases: r.phrases || [] };
+      }
+    } catch (e) { /* ignore */ }
+  }
+  function convertZh(text) {
+    if (lyrOpts.zh === 'off' || !text) return text;
+    if (!zhTables) return text;
+    let s = String(text);
+    const dir = lyrOpts.zh;
+    (zhTables.phrases || []).forEach((pair) => {
+      const from = dir === 's2t' ? pair[0] : pair[1];
+      const to = dir === 's2t' ? pair[1] : pair[0];
+      s = s.split(from).join(to);
+    });
+    const m = dir === 's2t' ? zhTables.map : zhTables.rev;
+    let out = '';
+    for (const ch of s) out += (m.get(ch) || ch);
+    return out;
+  }
+  /** 按选项组合一行的显示文本（原词 / 罗马音 / 翻译） */
+  function composeLyricLine(line, transMapRef, romaMapRef) {
+    if (!line) return '';
+    let main = convertZh(line.text);
+    const parts = [main];
+    if (lyrOpts.roma && romaMapRef && romaMapRef.get(line.t)) parts.push(convertZh(romaMapRef.get(line.t)));
+    if (lyrOpts.trans && transMapRef && transMapRef.get(line.t)) parts.push(convertZh(transMapRef.get(line.t)));
+    return parts.join('\n');
+  }
+
+  // ================= v2.0.0：系统托盘 =================
+  function bindTrayControls() {
+    const en = $('tray-enable');
+    const cl = $('tray-close');
+    try {
+      const s = JSON.parse(localStorage.getItem('songwave.tray') || 'null') || {};
+      if (en && s.enabled === false) en.checked = false;
+      if (cl) cl.checked = !!s.closeToTray;
+    } catch (e) { /* ignore */ }
+    function apply() {
+      const enabled = !en || en.checked !== false;   // 控件缺失或未定义时按「启用」处理
+      const closeToTray = !!(cl && cl.checked);
+      try { localStorage.setItem('songwave.tray', JSON.stringify({ enabled, closeToTray })); } catch (e) { /* ignore */ }
+      if (window.songwave.tray) {
+        window.songwave.tray({ action: enabled ? 'on' : 'off', options: { closeToTray, minimizeToTray: closeToTray } });
+      }
+    }
+    if (en) en.onchange = apply;
+    if (cl) cl.onchange = apply;
+    apply();
+  }
+  function updateTrayTooltip() {
+    if (!window.songwave.tray) return;
+    const it = current >= 0 ? playlist[current] : null;
+    window.songwave.tray({ action: 'tooltip', text: it ? (it.name + ' - ' + (it.artist || '')) : '声浪 SongWave' });
+  }
+
+  // ================= v2.0.0：批量下载（模板 / 并发 / 分组 / 歌词 / 封面） =================
+  let dlBatchRunning = false;
+  function dlOptions() {
+    return {
+      template: ($('dl-template') || {}).value || '{artist} - {name}',
+      concurrency: Number(($('dl-concurrency') || {}).value) || 3,
+      groupByPlaylist: !!($('dl-group') || {}).checked,
+      saveLyric: !!($('dl-lyric') || {}).checked,
+      embedCover: !!($('dl-embed-cover') || {}).checked,
+      embedLyric: !!($('dl-embed-lyric') || {}).checked,
+    };
+  }
+  async function downloadAll() {
+    if (!window.songwave.downloadBatch) return;
+    if (dlBatchRunning) { setStatus('已有批量下载在进行', 2500); return; }
+    const items = playlist.filter((x) => x.type !== 'local');
+    if (!items.length) { setStatus('播放列表里没有可下载的在线歌曲', 2500); return; }
+    const opts = dlOptions();
+    const saveDir = await ensureSaveDir();
+    const progEl = $('dl-progress');
+    setStatus('正在解析下载地址（0/' + items.length + '）…', 0);
+    const tasks = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      try {
+        const pr = await window.songwave.getPlayUrl({ source: it.source, id: it.id, extKey: it.extKey, songmid: it.songmid, hash: it.hash, copyrightId: it.copyrightId, quality: it.quality });
+        if (!pr || !pr.ok) continue;
+        let lyrics = '';
+        if (opts.saveLyric || opts.embedLyric) {
+          try {
+            const lr = await window.songwave.getLyric({ source: it.source, id: it.id, extKey: it.extKey });
+            if (lr && lr.ok && lr.data) lyrics = lr.data.lrc || '';
+          } catch (e) { /* ignore */ }
+        }
+        tasks.push({ url: pr.url, name: it.name, artist: it.artist, album: it.album, source: it.source, cover: it.cover, lyrics, index: i + 1 });
+      } catch (e) { /* 跳过失败项 */ }
+      if (progEl) progEl.textContent = '解析地址 ' + (i + 1) + '/' + items.length;
+    }
+    if (!tasks.length) { setStatus('没有可下载的歌曲（取链全部失败）', 5000); return; }
+    dlBatchRunning = true;
+    setStatus('开始下载 ' + tasks.length + ' 首…', 0);
+    const r = await window.songwave.downloadBatch({
+      items: tasks, saveDir, playlistName: '声浪下载', options: opts,
+    });
+    dlBatchRunning = false;
+    if (!r || !r.ok) { setStatus('批量下载失败：' + ((r && r.error) || ''), 6000); return; }
+    const s = r.summary || {};
+    setStatus('批量下载完成：成功 ' + (s.ok || 0) + ' 首' + (s.failed ? '，失败 ' + s.failed + ' 首' : ''), 8000);
+    if (progEl) progEl.textContent = '完成：成功 ' + (s.ok || 0) + ' / 失败 ' + (s.failed || 0);
+  }
+
+  function bindV2Controls() {
+    // 发现页
+    document.querySelectorAll('#chart-platforms .chip').forEach((b) => {
+      b.onclick = () => {
+        curChartPlatform = b.dataset.plat || 'netease';
+        document.querySelectorAll('#chart-platforms .chip').forEach((x) => x.classList.toggle('active', x === b));
+        loadCharts();
+      };
+    });
+    const rec = $('btn-recommend'); if (rec) rec.onclick = loadRecommend;
+    const cr = $('btn-charts-refresh'); if (cr) cr.onclick = loadCharts;
+    // 我的歌单
+    const create = $('btn-create-playlist');
+    if (create) create.onclick = () => {
+      const input = $('new-playlist-name');
+      const name = input ? String(input.value || '').trim() : '';
+      if (!name) { setStatus('请输入歌单名称', 2000); return; }
+      myPlaylists.push({ id: 'pl-' + Date.now(), name, songs: [] });
+      if (input) input.value = '';
+      saveMyPlaylists(); renderMyPlaylists();
+      setStatus('已新建歌单《' + name + '》', 2500);
+    };
+    // 桌面歌词浮窗
+    const dw = $('dl-window');
+    if (dw) dw.onchange = () => toggleLyricWindow(dw.checked);
+    const dwl = $('dl-winlock');
+    if (dwl) dwl.onchange = () => {
+      if (window.songwave.lyricWindow) window.songwave.lyricWindow({ locked: dwl.checked, style: dlStylePayload() });
+      setStatus(dwl.checked ? '浮窗已锁定（鼠标穿透）' : '浮窗已解锁', 2200);
+    };
+    // 歌词选项
+    const lt = $('lyr-trans'); const lr2 = $('lyr-roma'); const lz = $('lyr-zh');
+    if (lt) { lt.checked = !!lyrOpts.trans; lt.onchange = () => { lyrOpts.trans = lt.checked; saveLyrOpts(); rerenderLyrics(); }; }
+    if (lr2) { lr2.checked = !!lyrOpts.roma; lr2.onchange = () => { lyrOpts.roma = lr2.checked; saveLyrOpts(); rerenderLyrics(); }; }
+    if (lz) { lz.value = lyrOpts.zh; lz.onchange = async () => { lyrOpts.zh = lz.value; saveLyrOpts(); await loadZhTables(); rerenderLyrics(); }; }
+    // 托盘
+    bindTrayControls();
+    // 批量下载
+    const da = $('btn-dl-all'); if (da) da.onclick = downloadAll;
+    const dc = $('btn-dl-cancel');
+    if (dc) dc.onclick = async () => {
+      if (!window.songwave.cancelDownloadBatch) return;
+      const r = await window.songwave.cancelDownloadBatch();
+      setStatus(r && r.ok ? '已请求取消批量下载' : '没有进行中的批量下载', 2500);
+    };
+  }
+  /** 歌词选项变化后重绘 */
+  function rerenderLyrics() {
+    if (!lyricLines.length) return;
+    renderLyricFromCache();
+    if (isNowPlayingOpen()) renderOverlayLyric();
+    renderDesktopLyric();
+    pushLyricWindowData();
+  }
+
   // —— 引导逻辑 ——
+
   function boot() {
     if (IS_WALLPAPER) { enterWallpaperLocal(); return; }
     // 给 Song-Life 的粒子层打标记，便于背景模式下整体淡出（不改引擎源码）
@@ -2079,6 +2476,26 @@
     applyDlStyle();
     bindDesktopLyric();
     renderDesktopLyric();
+    loadMyPlaylists();
+    renderMyPlaylists();
+    renderMyPlaylistSongs();
+    loadZhTables();
+    bindV2Controls();
+    // 托盘命令（播放/暂停、上下一首）
+    if (window.songwave.onTrayCommand) {
+      window.songwave.onTrayCommand((cmd) => {
+        if (cmd === 'toggle') { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); }
+        else if (cmd === 'next' && playlist.length && current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); }
+        else if (cmd === 'prev' && playlist.length && current > 0) { current--; renderPlaylist(); playCurrent(); }
+      });
+    }
+    // 浮窗开关状态同步
+    if (window.songwave.onLyricWindowState) {
+      window.songwave.onLyricWindowState((on) => {
+        lyricWinOn = !!on;
+        const cb = $('dl-window'); if (cb) cb.checked = !!on;
+      });
+    }
     loadBgState();
     bindBackgroundControls();
     loadWeList();

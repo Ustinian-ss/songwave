@@ -124,6 +124,13 @@ function createWindow() {
 
   setupMaximizeEvents();
   setupWindowShortcuts(win);
+  // 关闭到托盘（可选）：拦截 close，隐藏窗口；真正退出走托盘菜单
+  win.on('close', (e) => {
+    if (trayOptions.closeToTray && !app.isQuiting) {
+      e.preventDefault();
+      win.hide();
+    }
+  });
   win.on('closed', () => { win = null; });
 }
 
@@ -140,6 +147,7 @@ function setupWindowShortcuts(win) {
 app.whenReady().then(() => {
   setupDisplayMedia();
   createWindow();
+  createTray();          // 系统托盘（可在面板里关闭）
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -320,6 +328,15 @@ ipcMain.handle('songwave-sources', () => ({
 
 // 音效预设（EQ 10 段）
 const audioFx = require('../src/audio-effects');
+// 简繁转换表（一次下发，渲染层本地转换，避免逐行 IPC）
+const zhConv = require('../src/zh-convert');
+ipcMain.handle('songwave-zh-tables', () => ({
+  ok: true,
+  s: zhConv.S2T_SIMPLE,
+  t: zhConv.S2T_TRAD,
+  phrases: zhConv.PHRASES,
+}));
+
 ipcMain.handle('songwave-audio-presets', () => ({
   ok: true,
   freqs: audioFx.EQ_FREQS,
@@ -648,3 +665,211 @@ app.on('will-quit', () => {
 app.on('before-quit', () => {
   if (wallpaperWin) { try { wallpaperWin.destroy(); } catch (e) { /* ignore */ } wallpaperWin = null; }
 });
+// ============================================================
+// v2.0.0 新增：桌面歌词独立浮窗 / 系统托盘 / 榜单 / 批量下载
+// ============================================================
+
+// —— 桌面歌词浮窗（独立窗口，可自由拖动） ——
+let lyricWin = null;
+const lyricState = { locked: false, style: null, text: '', next: '' };
+
+function createLyricWindow() {
+  if (lyricWin) return lyricWin;
+  const b = lyricState.bounds || { width: 960, height: 140, x: 240, y: 80 };
+  lyricWin = new BrowserWindow({
+    width: b.width, height: b.height, x: b.x, y: b.y,
+    frame: false, transparent: true, backgroundColor: '#00000000',
+    alwaysOnTop: true, skipTaskbar: true, resizable: true, hasShadow: false,
+    minimizable: false, maximizable: false, fullscreenable: false,
+    title: '声浪桌面歌词',
+    webPreferences: {
+      contextIsolation: true, nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  lyricWin.loadFile(path.join(__dirname, '..', 'app', 'desktop-lyric.html'));
+  try { lyricWin.setAlwaysOnTop(true, 'screen-saver'); } catch (e) { /* ignore */ }
+  if (lyricState.locked) { try { lyricWin.setIgnoreMouseEvents(true, { forward: true }); } catch (e) { /* ignore */ } }
+  lyricWin.on('moved', () => {
+    try {
+      const [x, y] = lyricWin.getPosition();
+      const [width, height] = lyricWin.getSize();
+      lyricState.bounds = { x, y, width, height };
+    } catch (e) { /* ignore */ }
+  });
+  lyricWin.on('closed', () => { lyricWin = null; notifyLyricState(false); });
+  lyricWin.webContents.on('did-finish-load', () => pushLyricPayload());
+  return lyricWin;
+}
+
+function pushLyricPayload() {
+  if (!lyricWin) return;
+  try {
+    lyricWin.webContents.send('lyric-window-data', {
+      text: lyricState.text, next: lyricState.next,
+      style: lyricState.style || {}, locked: lyricState.locked,
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function notifyLyricState(on) {
+  if (win && !win.isDestroyed()) {
+    try { win.webContents.send('lyric-window-state', !!on); } catch (e) { /* ignore */ }
+  }
+  refreshTrayMenu();
+}
+
+function toggleLyricWindow(on) {
+  if (on && !lyricWin) { createLyricWindow(); notifyLyricState(true); return { ok: true, on: true }; }
+  if (!on && lyricWin) { try { lyricWin.close(); } catch (e) { /* ignore */ } lyricWin = null; notifyLyricState(false); return { ok: true, on: false }; }
+  return { ok: true, on: !!lyricWin };
+}
+
+ipcMain.handle('songwave-lyric-window', (_e, payload) => {
+  const p = payload || {};
+  if (p.style) lyricState.style = p.style;
+  if (typeof p.locked === 'boolean') lyricState.locked = p.locked;
+  if (p.action === 'close') return toggleLyricWindow(false);
+  const r = toggleLyricWindow(p.action === 'open' ? true : (p.on !== undefined ? p.on : true));
+  if (lyricWin) {
+    try { lyricWin.setIgnoreMouseEvents(!!lyricState.locked, { forward: true }); } catch (e) { /* ignore */ }
+    pushLyricPayload();
+  }
+  return r;
+});
+
+ipcMain.handle('songwave-lyric-push', (_e, payload) => {
+  const p = payload || {};
+  lyricState.text = p.text || '';
+  lyricState.next = p.next || '';
+  if (p.style) lyricState.style = p.style;
+  pushLyricPayload();
+  return { ok: true };
+});
+
+ipcMain.handle('songwave-lyric-window-status', () => ({ ok: true, on: !!lyricWin, locked: lyricState.locked, bounds: lyricState.bounds || null }));
+
+// —— 系统托盘 ——
+let tray = null;
+let trayOptions = { minimizeToTray: false, closeToTray: false };
+
+function sendToMain(channel, payload) {
+  if (win && !win.isDestroyed()) {
+    try { win.webContents.send(channel, payload); return true; } catch (e) { /* ignore */ }
+  }
+  return false;
+}
+
+function toggleMainWindow() {
+  if (!win) return;
+  if (win.isVisible() && !win.isMinimized()) win.hide();
+  else { win.show(); win.focus(); }
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
+  const menu = Menu.buildFromTemplate([
+    { label: '显示 / 隐藏主窗口', click: toggleMainWindow },
+    { type: 'separator' },
+    { label: '播放 / 暂停', click: () => sendToMain('tray-command', 'toggle') },
+    { label: '上一首', click: () => sendToMain('tray-command', 'prev') },
+    { label: '下一首', click: () => sendToMain('tray-command', 'next') },
+    { type: 'separator' },
+    {
+      label: '桌面歌词',
+      type: 'checkbox',
+      checked: !!lyricWin,
+      click: () => toggleLyricWindow(!lyricWin),
+    },
+    { type: 'separator' },
+    { label: '退出 声浪', click: () => { app.isQuiting = true; app.quit(); } },
+  ]);
+  tray.setContextMenu(menu);
+}
+
+function createTray() {
+  if (tray) return tray;
+  try {
+    const iconPath = path.join(__dirname, '..', 'app', 'icon.png');
+    const img = nativeImage.createFromPath(iconPath);
+    tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img.resize({ width: 16, height: 16 }));
+  } catch (e) {
+    console.log('[songwave] 托盘创建失败:', e && e.message);
+    return null;
+  }
+  tray.setToolTip('声浪 SongWave');
+  refreshTrayMenu();
+  tray.on('click', toggleMainWindow);
+  tray.on('double-click', () => { if (win) { win.show(); win.focus(); } });
+  return tray;
+}
+
+ipcMain.handle('songwave-tray', (_e, payload) => {
+  const p = payload || {};
+  if (p.action === 'on') { createTray(); refreshTrayMenu(); return { ok: true, on: !!tray }; }
+  if (p.action === 'off' && tray) { try { tray.destroy(); } catch (e) { /* ignore */ } tray = null; return { ok: true, on: false }; }
+  if (p.action === 'tooltip') { if (tray) tray.setToolTip(String(p.text || '声浪 SongWave').slice(0, 120)); return { ok: true }; }
+  if (p.options) { Object.assign(trayOptions, p.options); }
+  return { ok: true, on: !!tray, options: trayOptions };
+});
+
+// —— 排行榜 / 推荐歌单 ——
+const charts = require('../src/charts');
+ipcMain.handle('songwave-charts', async (_e, payload) => {
+  const p = payload || {};
+  try {
+    if (p.action === 'list') return { ok: true, lists: ['netease', 'qq', 'kugou'].reduce((acc, k) => { acc[k] = charts.list(k); return acc; }, {}) };
+    if (p.action === 'recommend') return { ok: true, items: await charts.recommend(p.limit || 12) };
+    if (p.action === 'chart' || p.action === 'playlist') {
+      const r = await charts.fetchChart(p.platform || 'netease', p.id, p.limit || 50);
+      return { ok: true, data: r };
+    }
+    return { ok: false, error: '未知操作：' + p.action };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+});
+
+// —— 批量下载（并发 / 命名模板 / 分组 / 歌词与封面嵌入） ——
+const { createDownloadQueue } = require('../src/download-queue');
+const { writeTagsToFile } = require('../src/id3');
+let activeBatch = null;
+
+ipcMain.handle('songwave-download-batch', async (e, payload) => {
+  const p = payload || {};
+  const items = Array.isArray(p.items) ? p.items : [];
+  if (!items.length) return { ok: false, error: '没有可下载的歌曲' };
+  const dir = p.saveDir || DEFAULT_SAVE_DIR;
+  const q = createDownloadQueue({
+    concurrency: p.options && p.options.concurrency,
+    downloadFile,
+    fetchBuffer: async (url) => {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return Buffer.from(await res.arrayBuffer());
+    },
+  });
+  activeBatch = q;
+  q.on('progress', (prog) => {
+    try { e.sender.send('songwave-download-progress', Object.assign({ batch: true }, prog)); } catch (err) { /* ignore */ }
+  });
+  items.forEach((it, i) => {
+    q.add({
+      url: it.url, saveDir: dir, playlistName: p.playlistName, index: it.index != null ? it.index : (i + 1),
+      lyrics: it.lyrics, coverUrl: it.cover,
+      meta: { name: it.name, artist: it.artist, album: it.album, source: it.source },
+      options: Object.assign({}, p.options, { template: (p.options && p.options.template) || '{artist} - {name}' }),
+    });
+  });
+  const r = await q.start();
+  activeBatch = null;
+  return { ok: true, results: r.results, errors: r.errors, summary: q.summary() };
+});
+
+ipcMain.handle('songwave-download-batch-cancel', () => {
+  if (activeBatch) { activeBatch.cancelAll(); return { ok: true }; }
+  return { ok: false, error: '没有进行中的批量下载' };
+});
+
+// 主窗口关闭行为（托盘最小化）
+app.on('browser-window-created', () => { /* no-op: 保持 window-all-closed 逻辑 */ });

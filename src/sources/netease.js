@@ -63,11 +63,13 @@ async function getPlayUrl(id) {
 async function getLyric(id) {
   const nid = Number(id);
   if (!Number.isFinite(nid) || nid <= 0) throw new Error('无效歌曲 id');
-  const url = 'https://music.163.com/api/song/lyric?id=' + nid + '&lv=1&kv=1&tv=-1';
+  // rv=1 取罗马音（日文歌），tv=-1 取翻译
+  const url = 'https://music.163.com/api/song/lyric?id=' + nid + '&lv=1&kv=1&tv=-1&rv=1';
   const data = await httpJson(url);
   return {
     lrc: (data && data.lrc && data.lrc.lyric) || '',
     tlyric: (data && data.tlyric && data.tlyric.lyric) || '',
+    romalrc: (data && data.romalrc && data.romalrc.lyric) || '',
   };
 }
 
