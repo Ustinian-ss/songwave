@@ -26,7 +26,8 @@ function makeEl(tag = 'div') {
       },
       contains(c) { return this.set.has(c); },
     },
-    addEventListener(type, fn) { this._listeners[type] = fn; },
+    addEventListener(type, fn) { (this._listeners[type] = this._listeners[type] || []).push(fn); },
+    _emit(type, ev) { (this._listeners[type] || []).forEach((f) => f(ev || {})); },
     appendChild(child) { this._children.push(child); return child; },
     get children() { return this._children; },
     removeAttribute() {},
@@ -52,14 +53,12 @@ function makeAudioEl() {
   el.volume = 0.8;
   el.play = async () => {
     el.paused = false;
-    const fn = el._listeners['play'];
-    if (fn) fn();
+    el._emit('play');
     return undefined;
   };
   el.pause = () => {
     el.paused = true;
-    const fn = el._listeners['pause'];
-    if (fn) fn();
+    el._emit('pause');
   };
   return el;
 }
@@ -82,7 +81,7 @@ const chipEls = ['netease', 'qq', 'kugou', 'kuwo', 'migu'].map((s) => ({
   classList: { set: new Set(s === 'netease' ? ['active'] : []), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { const on = f === undefined ? !this.set.has(c) : !!f; if (on) this.set.add(c); else this.set.delete(c); return on; }, contains(c) { return this.set.has(c); } },
   onclick: null,
 }));
-const railEls = ['search', 'list', 'lyric', 'panel'].map((v) => ({
+const railEls = ['search', 'list', 'favorites', 'history', 'lyric', 'panel'].map((v) => ({
   id: 'rail-' + v,
   dataset: { view: v },
   classList: { set: new Set(v === 'search' ? ['active'] : []), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, f) { const on = f === undefined ? !this.set.has(c) : !!f; if (on) this.set.add(c); else this.set.delete(c); return on; }, contains(c) { return this.set.has(c); } },
@@ -101,7 +100,8 @@ const doc = {
     if (sel === '#rail .rail-btn') return railEls;
     return [];
   },
-  addEventListener(type, fn) { this._listeners[type] = fn; },
+  addEventListener(type, fn) { (this._listeners[type] = this._listeners[type] || []).push(fn); },
+  _emit(type, ev) { (this._listeners[type] || []).forEach((f) => f(ev || {})); },
 };
 
 const audioEl = makeAudioEl();
@@ -236,13 +236,13 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     // 5) 歌词解析与同步高亮
     check('歌词 2 行已渲染', ids['lyric']._children.length === 2);
     audioEl.currentTime = 11;
-    audioEl._listeners['timeupdate']();
+    audioEl._emit('timeupdate');
     check('第二行高亮（含翻译拼接）', ids['lyric']._children[1].classList.contains('active'));
     audioEl.currentTime = 0.5;
-    audioEl._listeners['timeupdate']();
+    audioEl._emit('timeupdate');
     check('歌前无高亮行', ids['lyric']._children[0].classList.contains('active') === false);
     audioEl.currentTime = 1.5;
-    audioEl._listeners['timeupdate']();
+    audioEl._emit('timeupdate');
     check('回到第一行高亮', ids['lyric']._children[0].classList.contains('active'));
 
     // 6) 单曲列表 next 不越界
@@ -257,7 +257,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
     // 7) 设置持久化
     ids['volume'].value = '55';
-    ids['volume']._listeners['input']({ target: ids['volume'] });
+    ids['volume']._emit('input', { target: ids['volume'] });
     check('音量已应用', Math.abs(audioEl.volume - 0.55) < 1e-9);
     check('设置已写入 localStorage', /volume/.test(sandbox.localStorage._d['songwave.state'] || ''));
 
@@ -267,20 +267,20 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
     // 9) 键盘快捷键
     audioEl.pause();
-    doc._listeners['keydown']({ key: ' ', preventDefault() {} });
+    doc._emit('keydown', { key: ' ', preventDefault() {} });
     check('Space 播放', audioEl.paused === false);
-    doc._listeners['keydown']({ key: ' ', preventDefault() {} });
+    doc._emit('keydown', { key: ' ', preventDefault() {} });
     check('Space 暂停', audioEl.paused === true);
     audioEl.currentTime = 50;
-    doc._listeners['keydown']({ key: 'ArrowRight', preventDefault() {} });
+    doc._emit('keydown', { key: 'ArrowRight', preventDefault() {} });
     check('→ 快进 5 秒', audioEl.currentTime === 55);
-    doc._listeners['keydown']({ key: 'ArrowLeft', preventDefault() {} });
+    doc._emit('keydown', { key: 'ArrowLeft', preventDefault() {} });
     check('← 快退 5 秒', audioEl.currentTime === 50);
-    doc._listeners['keydown']({ key: 'ArrowUp', preventDefault() {} });
+    doc._emit('keydown', { key: 'ArrowUp', preventDefault() {} });
     check('↑ 音量 +5', Number(ids['volume'].value) === 60 && Math.abs(audioEl.volume - 0.6) < 1e-9);
 
     // 10) 播放条滚轮调音量
-    ids['player']._listeners['wheel']({ deltaY: -100, preventDefault() {} });
+    ids['player']._emit('wheel', { deltaY: -100, preventDefault() {} });
     check('滚轮上调音量', Number(ids['volume'].value) === 65 && Math.abs(audioEl.volume - 0.65) < 1e-9);
 
     // 11) lx 音源状态提示
@@ -375,6 +375,55 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     await flush();
     check('触发了从 LX 导入', lastLxImport === true);
     check('LX 导入结果提示', /已从 LX 导入/.test(ids['status'].textContent), ids['status'].textContent);
+
+    // 21) 播放模式 / 倍速 / 定时停止
+    const modeBtn = doc.getElementById('btn-mode');
+    const beforeMode = modeBtn.textContent;
+    modeBtn.onclick();
+    check('播放模式可切换', modeBtn.textContent !== beforeMode && /播放模式/.test(modeBtn.title), modeBtn.textContent + ' | ' + modeBtn.title);
+    let guard = 0;
+    while (!/单曲循环/.test(modeBtn.title) && guard++ < 6) modeBtn.onclick();
+    check('可切到单曲循环', /单曲循环/.test(modeBtn.title), modeBtn.title);
+    audioEl.paused = true;
+    audioEl._emit('ended');
+    check('单曲循环：播完自动重播同一首', audioEl.paused === false);
+
+    const rateBtn = doc.getElementById('btn-rate');
+    const rate0 = audioEl.playbackRate;
+    rateBtn.onclick();
+    check('倍速可切换并已应用', audioEl.playbackRate !== rate0, String(audioEl.playbackRate));
+    check('倍速开启保持音调', audioEl.preservesPitch === true);
+
+    const sleepBtn = doc.getElementById('btn-sleep');
+    sleepBtn.onclick();
+    check('定时停止已设置', /′/.test(sleepBtn.textContent), sleepBtn.textContent);
+
+    // 22) 收藏 / 播放历史 / 搜索历史 / 进度记忆
+    const favBtn = doc.getElementById('btn-fav');
+    favBtn.onclick();
+    check('收藏后按钮变实心 ♥', favBtn.textContent === '♥', favBtn.textContent);
+    check('收藏已持久化', /x1/.test(String(sandbox.localStorage._d['songwave.favorites'] || '')), String(sandbox.localStorage._d['songwave.favorites']).slice(0, 60));
+    railEls.find((x) => x.dataset.view === 'favorites').onclick();
+    check('「我喜欢」列表已渲染', ids['favorites']._children.length >= 1 && !doc.getElementById('side-favorites').classList.contains('hidden'));
+    railEls.find((x) => x.dataset.view === 'history').onclick();
+    check('播放历史已记录', ids['history']._children.length >= 1, String(ids['history']._children.length));
+    check('搜索历史已持久化', /周杰伦/.test(String(sandbox.localStorage._d['songwave.searchHistory'] || '')), String(sandbox.localStorage._d['songwave.searchHistory']));
+
+    audioEl.currentTime = 77;
+    audioEl._emit('pause');
+    check('播放进度已记忆', /77/.test(String(sandbox.localStorage._d['songwave.progress'] || '')), String(sandbox.localStorage._d['songwave.progress']).slice(0, 60));
+
+    // 23) 列表拖拽排序
+    railEls.find((x) => x.dataset.view === 'list').onclick();
+    const plRows = ids['playlist']._children;
+    if (plRows.length >= 2) {
+      const order0 = plRows.map((r) => r.innerHTML).join('|');
+      plRows[1]._emit('drop', { preventDefault() {}, dataTransfer: { getData: () => '0' } });
+      const order1 = ids['playlist']._children.map((r) => r.innerHTML).join('|');
+      check('拖拽可调整播放顺序', order0 !== order1);
+    } else {
+      check('拖拽排序（列表不足 2 首，跳过）', true);
+    }
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
     process.exit(fail ? 1 : 0);

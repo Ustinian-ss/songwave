@@ -71,6 +71,7 @@
     setStatus('搜索中（' + (SOURCE_LABELS[curSource] || curSource) + '）…', 4000);
     const r = await window.songwave.search(kw, curSource);
     if (!r.ok) { setStatus('搜索失败：' + r.error); return; }
+    pushSearchHistory(kw);
     renderResults(r.data || []);
     setStatus(r.data && r.data.length ? `找到 ${r.data.length} 首` : '没有结果');
   }
@@ -123,17 +124,288 @@
     $('side-search').classList.toggle('hidden', key !== 'search');
     $('side-list').classList.toggle('hidden', key !== 'list');
     $('side-lyric').classList.toggle('hidden', key !== 'lyric');
+    const fav = $('side-favorites'); if (fav) fav.classList.toggle('hidden', key !== 'favorites');
+    const his = $('side-history'); if (his) his.classList.toggle('hidden', key !== 'history');
+    if (key === 'favorites') renderFavorites();
+    if (key === 'history') renderHistory();
+    // 功能栏高亮同步
+    document.querySelectorAll('#rail .rail-btn').forEach((b) => {
+      if (b.id === 'btn-wallpaper') return;
+      b.classList.toggle('active', b.dataset.view === key);
+    });
+  }
+
+  // ================= 曲库：收藏 / 历史 / 搜索历史 / 播放进度记忆 =================
+  let favorites = [];
+  let history = [];
+  let searchHistory = [];
+  let progressMap = {};
+  const HOT_SEARCHES = ['周杰伦', '林俊杰', '薛之谦', '夜曲', '起风了', '孤勇者'];
+
+  const trackKey = (it) => (it && (it.source || it.type || 'local')) + ':' + (it && (it.id || it.url || it.name) || '');
+  function loadLibrary() {
+    const read = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? d : v; } catch (e) { return d; } };
+    favorites = read('songwave.favorites', []) || [];
+    history = read('songwave.history', []) || [];
+    searchHistory = read('songwave.searchHistory', []) || [];
+    progressMap = read('songwave.progress', {}) || {};
+    if (!Array.isArray(favorites)) favorites = [];
+    if (!Array.isArray(history)) history = [];
+    if (!Array.isArray(searchHistory)) searchHistory = [];
+    if (typeof progressMap !== 'object' || !progressMap) progressMap = {};
+  }
+  function saveLibrary() {
+    try {
+      localStorage.setItem('songwave.favorites', JSON.stringify(favorites.slice(0, 500)));
+      localStorage.setItem('songwave.history', JSON.stringify(history.slice(0, 300)));
+      localStorage.setItem('songwave.searchHistory', JSON.stringify(searchHistory.slice(0, 30)));
+      localStorage.setItem('songwave.progress', JSON.stringify(progressMap));
+    } catch (e) { /* ignore */ }
+  }
+  function isFavorite(it) {
+    const k = trackKey(it);
+    return favorites.some((x) => trackKey(x) === k);
+  }
+  function toggleFavorite(it) {
+    if (!it) return;
+    const k = trackKey(it);
+    const idx = favorites.findIndex((x) => trackKey(x) === k);
+    if (idx >= 0) { favorites.splice(idx, 1); setStatus('已取消收藏', 1800); }
+    else { favorites.unshift(it); setStatus('已收藏到「我喜欢」', 1800); }
+    saveLibrary(); renderFavorites(); updateFavButton();
+  }
+  function updateFavButton() {
+    const btn = $('btn-fav');
+    if (!btn) return;
+    const on = current >= 0 && playlist[current] && isFavorite(playlist[current]);
+    btn.textContent = on ? '♥' : '♡';
+    btn.classList.toggle('active', !!on);
+  }
+  function pushHistory(it) {
+    if (!it) return;
+    const k = trackKey(it);
+    const i = history.findIndex((x) => trackKey(x) === k);
+    if (i >= 0) history.splice(i, 1);
+    history.unshift(Object.assign({}, it, { playedAt: Date.now() }));
+    saveLibrary();
+    if (currentSideView() === 'history') renderHistory();
+  }
+  function currentSideView() {
+    const el = $('side-search');
+    if (el && !el.classList.contains('hidden')) return 'search';
+    const l = $('side-list'); if (l && !l.classList.contains('hidden')) return 'list';
+    const ly = $('side-lyric'); if (ly && !ly.classList.contains('hidden')) return 'lyric';
+    const f = $('side-favorites'); if (f && !f.classList.contains('hidden')) return 'favorites';
+    return 'history';
+  }
+  function pushSearchHistory(kw) {
+    const k = String(kw || '').trim();
+    if (!k) return;
+    const i = searchHistory.indexOf(k);
+    if (i >= 0) searchHistory.splice(i, 1);
+    searchHistory.unshift(k);
+    saveLibrary(); renderSearchHistory();
+  }
+  function renderSearchHistory() {
+    const el = $('search-history');
+    if (!el) return;
+    el.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'sh-head';
+    head.textContent = '热门搜索';
+    el.appendChild(head);
+    const row1 = document.createElement('div');
+    row1.className = 'sh-row';
+    HOT_SEARCHES.slice(0, 6).forEach((k) => {
+      const b = document.createElement('button');
+      b.className = 'btn chip';
+      b.textContent = k;
+      b.onclick = () => { $('search-input').value = k; doSearch(); };
+      row1.appendChild(b);
+    });
+    el.appendChild(row1);
+    if (searchHistory.length) {
+      const head2 = document.createElement('div');
+      head2.className = 'sh-head';
+      const label = document.createElement('span');
+      label.textContent = '搜索历史';
+      const clr = document.createElement('button');
+      clr.className = 'sh-clear';
+      clr.textContent = '清空';
+      clr.onclick = () => { searchHistory = []; saveLibrary(); renderSearchHistory(); };
+      head2.appendChild(label);
+      head2.appendChild(clr);
+      el.appendChild(head2);
+      const row2 = document.createElement('div');
+      row2.className = 'sh-row';
+      searchHistory.slice(0, 12).forEach((k) => {
+        const b = document.createElement('button');
+        b.className = 'btn chip';
+        b.textContent = k;
+        b.onclick = () => { $('search-input').value = k; doSearch(); };
+        row2.appendChild(b);
+      });
+      el.appendChild(row2);
+    }
+  }
+  function renderFavorites() {
+    const el = $('favorites');
+    if (!el) return;
+    el.innerHTML = '';
+    if (!favorites.length) { el.innerHTML = '<div class="we-empty">还没有收藏，点播放条上的 ♡ 收藏当前歌曲</div>'; return; }
+    favorites.forEach((it, i) => {
+      const row = document.createElement('div');
+      row.className = 'track';
+      row.innerHTML =
+        '<span class="t-idx">' + (i + 1) + '</span>' +
+        '<span class="t-name">' + esc(it.name || it.label) + '</span>' +
+        '<span class="t-artist">' + esc(it.artist || '') + '</span>' +
+        '<span class="t-src">' + esc(sourceLabelOf(it)) + '</span>' +
+        '<button class="t-remove" title="取消收藏">♥</button>';
+      row.onclick = () => { playlist = playlist.concat([it]); current = playlist.length - 1; renderPlaylist(); playCurrent(); switchTab('list'); };
+      const rm = row.querySelector('.t-remove');
+      if (rm) rm.onclick = (e) => { e.stopPropagation(); toggleFavorite(it); };
+      el.appendChild(row);
+    });
+  }
+  function renderHistory() {
+    const el = $('history');
+    if (!el) return;
+    el.innerHTML = '';
+    if (!history.length) { el.innerHTML = '<div class="we-empty">还没有播放记录</div>'; return; }
+    history.forEach((it, i) => {
+      const row = document.createElement('div');
+      row.className = 'track';
+      row.innerHTML =
+        '<span class="t-idx">' + (i + 1) + '</span>' +
+        '<span class="t-name">' + esc(it.name || it.label) + '</span>' +
+        '<span class="t-artist">' + esc(it.artist || '') + '</span>' +
+        '<span class="t-src">' + esc(sourceLabelOf(it)) + '</span>' +
+        '<button class="t-dl" title="加入列表">＋</button>';
+      row.onclick = () => { playlist = playlist.concat([it]); current = playlist.length - 1; renderPlaylist(); playCurrent(); switchTab('list'); };
+      const add = row.querySelector('.t-dl');
+      if (add) add.onclick = (e) => { e.stopPropagation(); playlist.push(it); renderPlaylist(); setStatus('已加入播放列表', 1800); };
+      el.appendChild(row);
+    });
+  }
+  function sourceLabelOf(it) {
+    if (!it) return '';
+    if (it.type === 'local') return '本地';
+    if (it.source === 'lx') return it.lxSource || 'lx';
+    const map = { netease: '网易', qq: 'QQ', kugou: '酷狗', kuwo: '酷我', migu: '咪咕', search: '搜索' };
+    return map[it.source] || it.source || '';
+  }
+
+  // ================= 播放模式 / 倍速 / 定时停止 =================
+  const PLAY_MODES = [
+    { key: 'order', icon: '➡', label: '顺序播放' },
+    { key: 'list', icon: '🔁', label: '列表循环' },
+    { key: 'single', icon: '🔂', label: '单曲循环' },
+    { key: 'shuffle', icon: '🔀', label: '随机播放' },
+  ];
+  let playMode = 'order';
+  const RATES = [1, 1.25, 1.5, 2, 0.75, 0.5];
+  let rateIdx = 0;
+  let sleepTimer = null;
+
+  function applyPlayMode(key) {
+    playMode = key;
+    const m = PLAY_MODES.find((x) => x.key === key) || PLAY_MODES[0];
+    const btn = $('btn-mode');
+    if (btn) { btn.textContent = m.icon; btn.title = '播放模式：' + m.label + '（点击切换）'; }
+  }
+  function cyclePlayMode() {
+    const i = PLAY_MODES.findIndex((x) => x.key === playMode);
+    applyPlayMode(PLAY_MODES[(i + 1) % PLAY_MODES.length].key);
+    saveState();
+    setStatus('播放模式：' + (PLAY_MODES.find((x) => x.key === playMode) || {}).label, 2000);
+  }
+  function applyRate(r) {
+    audio.playbackRate = r;
+    try { audio.preservesPitch = true; } catch (e) { /* ignore */ }
+    const btn = $('btn-rate');
+    if (btn) btn.textContent = Number(r).toFixed(2).replace(/0$/, '') + 'x';
+  }
+  function cycleRate() {
+    rateIdx = (rateIdx + 1) % RATES.length;
+    applyRate(RATES[rateIdx]);
+    saveState();
+    setStatus('播放速度 ' + RATES[rateIdx] + 'x', 1800);
+  }
+  const SLEEP_STEPS = [0, 15, 30, 60, 90];
+  let sleepStep = 0;
+  function cycleSleep() {
+    sleepStep = (sleepStep + 1) % SLEEP_STEPS.length;
+    if (sleepTimer) { clearTimeout(sleepTimer); sleepTimer = null; }
+    const min = SLEEP_STEPS[sleepStep];
+    const btn = $('btn-sleep');
+    if (!min) { if (btn) { btn.textContent = '⏱'; btn.classList.remove('active'); } setStatus('已取消定时停止', 2000); return; }
+    if (btn) { btn.textContent = min + '′'; btn.classList.add('active'); }
+    sleepTimer = setTimeout(() => {
+      audio.pause();
+      setStatus('定时停止：已暂停播放', 6000);
+      sleepStep = 0;
+      if (btn) { btn.textContent = '⏱'; btn.classList.remove('active'); }
+    }, min * 60 * 1000);
+    setStatus('将在 ' + min + ' 分钟后停止播放', 2500);
+  }
+
+  /** 播完一首后按播放模式决定下一首 */
+  function advanceOnEnded() {
+    if (!playlist.length) return;
+    if (playMode === 'single') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
+    if (playMode === 'shuffle') {
+      if (playlist.length === 1) { audio.currentTime = 0; audio.play().catch(() => {}); return; }
+      let n = current;
+      while (n === current) n = Math.floor(Math.random() * playlist.length);
+      current = n; renderPlaylist(); playCurrent(); return;
+    }
+    if (current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); return; }
+    if (playMode === 'list') { current = 0; renderPlaylist(); playCurrent(); return; }
+    setStatus('播放列表已播完');
+  }
+
+  function saveProgress() {
+    const it = current >= 0 ? playlist[current] : null;
+    if (!it || !audio.currentTime || audio.currentTime < 3) return;
+    progressMap[trackKey(it)] = Math.round(audio.currentTime);
+    saveLibrary();
   }
   function renderPlaylist() {
     playlistEl.innerHTML = '';
     playlist.forEach((it, i) => {
       const row = document.createElement('div');
       row.className = 'track' + (i === current ? ' active' : '');
+      row.draggable = true;
+      row.dataset.idx = String(i);
       row.innerHTML =
+        '<span class="t-idx">' + (i + 1) + '</span>' +
         '<span class="t-name">' + esc(it.name || it.label) + '</span>' +
         '<span class="t-artist">' + esc(it.artist || '') + '</span>' +
+        '<span class="t-src">' + esc(sourceLabelOf(it)) + '</span>' +
         (it.type === 'local' ? '' : '<button class="t-dl" title="下载">⤓</button>') +
         '<button class="t-remove" title="移出列表">✕</button>';
+      // 拖拽排序
+      row.addEventListener('dragstart', (e) => {
+        try { e.dataTransfer.setData('text/plain', String(i)); } catch (err) { /* ignore */ }
+        row.classList.add('dragging');
+      });
+      row.addEventListener('dragend', () => row.classList.remove('dragging'));
+      row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag-over'); });
+      row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+      row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        row.classList.remove('drag-over');
+        let from = i;
+        try { from = Number(e.dataTransfer.getData('text/plain')); } catch (err) { /* ignore */ }
+        if (!Number.isFinite(from) || from === i || from < 0 || from >= playlist.length) return;
+        const playing = playlist[current];
+        const [moved] = playlist.splice(from, 1);
+        playlist.splice(i, 0, moved);
+        current = playing ? playlist.indexOf(playing) : -1;
+        renderPlaylist();
+        setStatus('已调整播放顺序', 1500);
+      });
       const dlBtn = row.querySelector('.t-dl');
       if (dlBtn) dlBtn.onclick = (e) => { e.stopPropagation(); downloadItem(it); };
       row.querySelector('.t-remove').onclick = (e) => {
@@ -335,6 +607,13 @@
       src = r.url;
     }
     audio.src = src;
+    // 进度记忆：上次听到哪就从哪继续（开头/结尾附近不恢复）
+    const saved = progressMap[trackKey(item)];
+    if (saved && saved > 10) pendingSeek = saved;
+    pushHistory(item);
+    updateFavButton();
+    try { audio.preservesPitch = true; } catch (e) { /* ignore */ }
+    applyRate(RATES[rateIdx]);
     try { await audio.play(); } catch (err) {
       setStatus('播放失败：' + (err && err.message || err));
     }
@@ -352,10 +631,7 @@
   $('btn-next').onclick = () => { if (playlist.length && current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); } };
   audio.addEventListener('play', () => { errorStreak = 0; btnPlay.textContent = '⏸'; });
   audio.addEventListener('pause', () => { btnPlay.textContent = '▶'; });
-  audio.addEventListener('ended', () => {
-    if (current < playlist.length - 1) { current++; renderPlaylist(); playCurrent(); }
-    else setStatus('播放列表已播完');
-  });
+  audio.addEventListener('ended', () => { advanceOnEnded(); });
   // 在线直链对 VIP/版权受限歌曲会失败：自动跳到下一首（连续失败 3 次停止，防死循环）
   let errorStreak = 0;
   audio.addEventListener('error', () => {
@@ -371,6 +647,7 @@
   });
 
   // 进度与音量
+  let lastProgressSave = 0;
   audio.addEventListener('timeupdate', () => {
     $('time-cur').textContent = fmtTime(audio.currentTime);
     if (audio.duration && Number.isFinite(audio.duration)) {
@@ -378,7 +655,11 @@
       $('progress').value = Math.round((audio.currentTime / audio.duration) * 1000);
     }
     updateLyricActive(audio.currentTime);
+    // 每 5 秒记一次播放进度
+    const now = Date.now();
+    if (now - lastProgressSave > 5000) { lastProgressSave = now; saveProgress(); }
   });
+  audio.addEventListener('pause', () => { saveProgress(); });
   $('progress').addEventListener('input', (e) => {
     if (audio.duration && Number.isFinite(audio.duration)) {
       audio.currentTime = (Number(e.target.value) / 1000) * audio.duration;
@@ -634,6 +915,7 @@
           tilt: engine.getParam('tilt'), hueShift: engine.getParam('hueShift'),
           mouseWave: engine.getParam('mouseWave'), barStyle: engine.getParam('barStyle'),
           hint: $('hint-input').value, volume: $('volume').value,
+          playMode: playMode, rate: RATES[rateIdx],
         },
       }));
     } catch (e) { /* ignore */ }
@@ -657,6 +939,11 @@
     });
     if (st.hint) { $('hint-input').value = st.hint; hintEl.textContent = st.hint; }
     if (st.volume !== undefined) { $('volume').value = st.volume; audio.volume = Number(st.volume) / 100; }
+    if (st.playMode && PLAY_MODES.some((m) => m.key === st.playMode)) applyPlayMode(st.playMode);
+    if (st.rate) {
+      const idx = RATES.indexOf(Number(st.rate));
+      if (idx >= 0) { rateIdx = idx; applyRate(RATES[rateIdx]); }
+    }
     // 回填主题高亮
     themesEl.querySelectorAll('.theme').forEach((b) => b.classList.toggle('active', b.dataset.key === st.theme));
   }
@@ -965,13 +1252,35 @@
     };
   }
 
+  // —— 播放条新控件：播放模式 / 收藏 / 倍速 / 定时停止 ——
+  {
+    const mode = $('btn-mode'); if (mode) mode.onclick = cyclePlayMode;
+    const fav = $('btn-fav'); if (fav) fav.onclick = () => {
+      if (current < 0 || !playlist[current]) { setStatus('先播放一首再收藏', 2000); return; }
+      toggleFavorite(playlist[current]);
+    };
+    const rate = $('btn-rate'); if (rate) rate.onclick = cycleRate;
+    const sleep = $('btn-sleep'); if (sleep) sleep.onclick = cycleSleep;
+    const fp = $('btn-fav-play');
+    if (fp) fp.onclick = () => {
+      if (!favorites.length) { setStatus('还没有收藏', 2000); return; }
+      playlist = playlist.concat(favorites);
+      current = playlist.length - favorites.length;
+      renderPlaylist(); playCurrent(); switchTab('list');
+    };
+    const fc = $('btn-fav-clear');
+    if (fc) fc.onclick = () => { favorites = []; saveLibrary(); renderFavorites(); updateFavButton(); setStatus('收藏已清空', 2000); };
+    const hc = $('btn-hist-clear');
+    if (hc) hc.onclick = () => { history = []; saveLibrary(); renderHistory(); setStatus('播放历史已清空', 2000); };
+  }
+
   // —— 左侧功能栏（LX 风格竖向导航） ——
   document.querySelectorAll('#rail .rail-btn').forEach((b) => {
     if (b.id === 'btn-wallpaper') return;   // 壁纸按钮有独立逻辑
     b.onclick = () => {
       const view = b.dataset.view;
       document.querySelectorAll('#rail .rail-btn').forEach((x) => x.classList.toggle('active', x === b));
-      if (view === 'search' || view === 'list' || view === 'lyric') {
+      if (view === 'search' || view === 'list' || view === 'lyric' || view === 'favorites' || view === 'history') {
         switchTab(view);
       } else if (view === 'panel') {
         const p = $('panel');
@@ -1129,8 +1438,15 @@
     bindBackgroundControls();
     loadWeList();
     loadSrcList();
+    loadLibrary();
+    applyPlayMode(playMode);
+    applyRate(RATES[rateIdx]);
+    renderSearchHistory();
     loadState();
     renderPlaylist();
+    renderFavorites();
+    renderHistory();
+    updateFavButton();
     updateLxStatus();
     if (current >= 0 && playlist[current]) {
       // 恢复上次会话的播放列表（不自动播放，等用户点播放）

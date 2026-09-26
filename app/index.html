@@ -34,6 +34,8 @@
   <nav id="rail">
     <button class="rail-btn active" data-view="search" title="搜索">🔍</button>
     <button class="rail-btn" data-view="list" title="播放列表">☰</button>
+    <button class="rail-btn" data-view="favorites" title="我喜欢">♥</button>
+    <button class="rail-btn" data-view="history" title="播放历史">🕘</button>
     <button class="rail-btn" data-view="lyric" title="歌词">♪</button>
     <button class="rail-btn" id="btn-wallpaper" data-view="wallpaper" title="壁纸/沉浸模式（Esc 或 W 退出，桌面层 Ctrl+Alt+W）">🖼</button>
     <button class="rail-btn" data-view="panel" title="设置 / 音源管理">⚙</button>
@@ -58,6 +60,7 @@
         <button class="btn chip" data-src="kuwo">酷我</button>
         <button class="btn chip" data-src="migu">咪咕</button>
       </div>
+      <div id="search-history" class="search-history"></div>
       <div id="results" class="result-list"></div>
     </div>
     <div class="side-body hidden" id="side-list">
@@ -86,6 +89,19 @@
       </div>
       <div id="lyric" class="lyric-list"></div>
     </div>
+    <div class="side-body hidden" id="side-favorites">
+      <div class="list-tools">
+        <button class="btn" id="btn-fav-play">▶ 播放全部</button>
+        <button class="btn" id="btn-fav-clear" title="清空收藏">🗑</button>
+      </div>
+      <div id="favorites" class="vlist"></div>
+    </div>
+    <div class="side-body hidden" id="side-history">
+      <div class="list-tools">
+        <button class="btn" id="btn-hist-clear" title="清空历史">🗑 清空历史</button>
+      </div>
+      <div id="history" class="vlist"></div>
+    </div>
     <div id="lx-status" class="lx-status" title="音源状态">音源加载中…</div>
   </aside>
 
@@ -100,9 +116,13 @@
     </div>
     <div class="player-mid">
       <div class="player-btns">
+        <button class="btn" id="btn-mode" title="播放模式：顺序播放">➡</button>
         <button class="btn" id="btn-prev" title="上一首">⏮</button>
         <button class="btn btn-primary" id="btn-play" title="播放 / 暂停">▶</button>
         <button class="btn" id="btn-next" title="下一首">⏭</button>
+        <button class="btn" id="btn-fav" title="收藏到「我喜欢」">♡</button>
+        <button class="btn" id="btn-rate" title="播放速度">1.0x</button>
+        <button class="btn" id="btn-sleep" title="定时停止播放">⏱</button>
       </div>
       <div class="progress-row">
         <span id="time-cur">0:00</span>
