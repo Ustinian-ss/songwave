@@ -412,7 +412,8 @@
         renderPlaylist();
         syncNowPlaying();
       }
-      audio.src = pr.url;
+      audio.src = pr.playUrl || pr.url;
+      if (window.SongLife) ensureEngine(!!pr.playUrl);
       try { await audio.play(); } catch (e) { /* ignore */ }
       // 标记：只有试听片段的曲目，播完/截断报错时别再说"换源失败"吓人
       if (pr.warn) {
@@ -719,8 +720,24 @@
       }
     }, 1000);
   }
-  async function ensureEngine() {
-    if (engineStarted) return;
+  async function ensureEngine(preferDirect) {
+    // 走本机代理时优先直连分析：系统回环抓不到本进程自己的播放（Chromium 特性），
+    // 那会让分析数据恒为 0 —— 表现就是"律动没了、一直在演示动画"。
+    if (engineStarted) {
+      if (preferDirect && vizMode === 'system' && typeof engine.initFile === 'function') {
+        try { engine.initFile(audio); vizMode = 'direct'; setStatus('可视化已切换为直连分析', 3000); } catch (e) { /* ignore */ }
+      }
+      return;
+    }
+    if (preferDirect && typeof engine.initFile === 'function') {
+      try {
+        engine.initFile(audio);
+        vizMode = 'direct';
+        engineStarted = true;
+        if (fx.enabled) applyEffects();
+        return;
+      } catch (e) { /* 直连失败再退回系统回环 */ }
+    }
     try {
       await engine.initSystemAudio();
       vizMode = 'system';
@@ -749,10 +766,10 @@
     }
     setStatus('播放：' + (item.name || item.label), 2000);
 
-    ensureEngine();
     let src;
     if (item.type === 'local') {
       src = toFileUrl(item.url);
+      ensureEngine(true);   // 本地文件本来就能直接分析
     } else {
       const r = await window.songwave.getPlayUrl({
         source: item.source,
@@ -773,7 +790,8 @@
         if (!ok && !autoSwitch) setStatus('获取播放地址失败：' + r.error, 6000);
         return;
       }
-      src = r.url;
+      src = r.playUrl || r.url;   // 在线音频走本机 CORS 代理，直接分析才拿得到频谱
+      ensureEngine(!!r.playUrl);
       // 例如「酷我仅提供试听片段（约 11 秒）」：如实告知，别让人以为播放器坏了
       if (r.warn) setStatus(r.warn, 9000);
     }

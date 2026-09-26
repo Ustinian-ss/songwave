@@ -520,8 +520,17 @@ ipcMain.handle('songwave-search', async (_e, keywords, sourceKey) => {
   }
 });
 
+const { createAudioProxy } = require('../src/audio-proxy');
+const audioProxy = createAudioProxy();
+audioProxy.start().then((x) => logLine('[songwave] 音频代理已启动 | 端口', x.port)).catch((e) => logLine('[songwave] 音频代理启动失败:', errText(e)));
+
 ipcMain.handle('songwave-play-url', async (_e, payload) => {
   const r = await resolvePlayUrl(payload);
+  // 在线音频一律走本机 CORS 代理：直接分析才拿得到频谱（跨域脏图会让律动恒为 0）
+  if (r && r.ok && r.url && /^https?:\/\//i.test(r.url)) {
+    r.direct = true;
+    r.playUrl = audioProxy.wrap(r.url);
+  }
   // 取链成功就写入「已解析地址缓存」：下次直接命中，不怕音源后端再挂
   if (r && r.ok && r.url && payload && payload.id !== undefined && payload.id !== null && payload.source !== 'search') {
     try {
