@@ -1,7 +1,7 @@
 // 声浪 SongWave · 扩展音源脚本 mini-runtime（Node 侧，纯本地）
-// 目标：让 外部播放器 生态的「自定义音源脚本」（如 flower.js / sixyin.js）在
-// 不安装 外部播放器 的情况下直接跑在 SongWave 里。
-// 契约参考自 外部播放器-desktop v2.12.6 的 user-api-preload.js：
+// 目标：让社区格式的「自定义音源脚本」在
+// 不依赖任何第三方播放器的情况下直接跑在 SongWave 里。
+// 契约参考社区音源脚本运行时（user-api）v2 系列：
 //   lx.EVENT_NAMES = { request, inited, updateAlert }
 //   lx.on(EVENT_NAMES.request, handler)         // handler(payload) 返回 Promise
 //   lx.send(EVENT_NAMES.inited, capabilities)   // 声明 sources/actions/qualities

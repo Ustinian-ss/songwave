@@ -1,6 +1,6 @@
 // 声浪 SongWave · 扩展音源脚本运行时测试（离线，无需网络/Electron）
 // 用法：node scripts/test-script-runtime.js [脚本路径]
-// 默认测试 D:\小程序\lxmusic\flower-v1.0.0.js，可传参换 sixyin 等
+// 默认读取环境变量 SONGWAVE_SOURCE_SCRIPT 指定的脚本；也可把路径作为第一个参数传入
 'use strict';
 
 const path = require('path');
@@ -8,7 +8,7 @@ const fs = require('fs');
 const { loadScript } = require('../src/sources/script-runtime');
 const { createLxSource } = require('../src/sources/script-source');
 
-const DEFAULT_SCRIPT = process.env.SONGWAVE_SOURCE_SCRIPT || 'D:\\小程序\\lxmusic\\flower-v1.0.0.js';
+const DEFAULT_SCRIPT = process.env.SONGWAVE_SOURCE_SCRIPT || '';
 
 let pass = 0, fail = 0;
 function check(name, cond, detail) {
@@ -17,11 +17,27 @@ function check(name, cond, detail) {
 }
 
 async function main() {
-  const scriptPath = process.argv[2] || DEFAULT_SCRIPT;
-  console.log('测试脚本：', scriptPath);
-  if (!fs.existsSync(scriptPath)) {
-    console.error('脚本不存在，跳过（可用 SONGWAVE_SOURCE_SCRIPT 指定其他路径）');
-    return;
+  let scriptPath = process.argv[2] || DEFAULT_SCRIPT;
+  let tmpFixture = null;
+  // 没有指定脚本时，自动生成一个符合 ABI 的最小示例脚本，保证测试对任何环境都有意义
+  if (!scriptPath || !fs.existsSync(scriptPath)) {
+    const os = require('os');
+    tmpFixture = path.join(os.tmpdir(), 'songwave-runtime-fixture-' + Date.now() + '.js');
+    fs.writeFileSync(tmpFixture, [
+      "const { EVENT_NAMES, on, send } = globalThis.lx;",
+      "send(EVENT_NAMES.inited, { sources: {",
+      "  kw: { name: '酷我', type: 'music', actions: ['musicUrl'], qualitys: ['128k'] },",
+      "  tx: { name: 'QQ', type: 'music', actions: ['musicUrl'], qualitys: ['128k'] }",
+      "} });",
+      "on(EVENT_NAMES.request, ({ source, action, info }) => {",
+      "  if (action !== 'musicUrl') return Promise.reject(new Error('不支持的动作: ' + action));",
+      "  return Promise.resolve({ url: 'https://mock.example/' + source + '/' + info.musicInfo.id + '.mp3' });",
+      "});",
+    ].join('\n'), 'utf8');
+    scriptPath = tmpFixture;
+    console.log('未指定脚本，使用内置示例脚本：', path.basename(tmpFixture));
+  } else {
+    console.log('测试脚本：', scriptPath);
   }
 
   // 离线网络桩：按 URL 特征返回不同的“合法信封”，记录请求 URL

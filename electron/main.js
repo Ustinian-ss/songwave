@@ -12,7 +12,8 @@ let wallpaperWin = null;
 let wallpaperParams = null;
 
 // —— 扩展音源（链接导入 / 本地导入 / 多音源并存 / 启用停用） ——
-const SOURCE_SCRIPT = process.env.SONGWAVE_SOURCE_SCRIPT || 'D:\\小程序\\lxmusic\\flower-v1.0.0.js';
+// 不写死任何本机路径：脚本请通过「音源管理」导入，或用 SONGWAVE_SOURCE_SCRIPT 指定
+const SOURCE_SCRIPT = process.env.SONGWAVE_SOURCE_SCRIPT || '';
 const SOURCE_INIT_TIMEOUT = Number(process.env.SONGWAVE_SOURCE_INIT_TIMEOUT) || 30000;
 let srcMgr = null;
 let lxLoadPromise = null;
@@ -212,7 +213,7 @@ ipcMain.handle('songwave-src-add', async (_e, payload) => {
   }
 });
 
-// 从其它播放器一键导入（读 %APPDATA%\外部播放器-desktop\LxDatas\user_api.json）
+// 从其它播放器一键导入（自动探测其音源数据文件，含压缩脚本解压）
 ipcMain.handle('songwave-src-external-preview', async () => {
   try {
     const lxImport = require('../src/sources/import-sources');

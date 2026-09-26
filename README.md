@@ -72,10 +72,15 @@
 ## 快速开始
 
 ```bash
-cd F:\projects\songwave
+# 1) 克隆（或直接下载 ZIP 解压）
+git clone git@github.com:Ustinian-ss/songwave.git
+cd songwave
 
-npm install          # 安装 electron 与 electron-builder（需联网，约 100MB+）
-npm start            # 启动应用
+# 2) 安装依赖（electron + electron-builder，需联网，约 100MB+）
+npm install
+
+# 3) 启动
+npm start
 ```
 
 **离线自检（无需安装依赖、无需网络）**：
@@ -83,6 +88,8 @@ npm start            # 启动应用
 ```bash
 npm run test:all     # 11 套 / 270 条断言，全离线
 ```
+
+> 也可直接使用 Release 里的安装包：下载 `SongWave-Setup-*.exe` 双击安装，无需 Node 环境。
 
 ### 安装慢？换镜像
 
@@ -93,7 +100,7 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-buil
 npm install --no-audit --no-fund
 ```
 
-> 若 Electron 二进制已存在于缓存（`%LOCALAPPDATA%\electron\Cache`），也可以 `npm install --ignore-scripts` 后手动解压到 `node_modules/electron/dist` 并写入 `path.txt`（内容为 `electron.exe`）。
+> 若 Electron 二进制已存在于缓存（`%LOCALAPPDATA%\electron\Cache`），也可以 `npm install --ignore-scripts` 后手动解压到 `node_modules/electron/dist`，并把 `node_modules/electron/path.txt` 写成 `electron.exe`。
 
 ---
 
@@ -114,7 +121,7 @@ npm install --no-audit --no-fund
 | 粘贴链接 | 支持多条链接、含「密码:xxxx」的分享文本，也能直接粘贴脚本代码 |
 | 选文件 | 选择本地 `.js` 音源脚本 |
 | 文件夹导入 | 批量扫描目录下所有 `.js` 并逐一探测能力 |
-| 从其它播放器导入 | 读取已安装播放器的音源数据（`%APPDATA%\lx-music-desktop\LxDatas\user_api.json`），**自动解压**其压缩存储的脚本并导入 |
+| 从其它播放器导入 | 自动探测常见播放器的音源数据文件，**自动解压**其中压缩存储的脚本并批量导入 |
 
 导入后会显示每个脚本**支持的平台**（如 `kw, wy, mg, tx, kg`）与动作（`musicUrl` 取链 / `search` 搜索），可**启用停用**、**删除**、**重新下载更新**。
 
