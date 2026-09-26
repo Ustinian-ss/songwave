@@ -73,6 +73,8 @@ let lastSrcAdd = null;
 let lastLxImport = false;
 let lastPlImport = null;
 let lastAltQuery = null;
+let altEmpty = false;
+let altAllFail = false;
 const failSources = new Set();
 const tabEls = [
   { dataset: { tab: 'search' }, classList: { set: new Set(), add() {}, remove() {}, toggle() {}, contains() { return false; } }, onclick: null },
@@ -114,8 +116,8 @@ const engineStub = {
   initSystemAudio: async () => { engineStub.calls = (engineStub.calls || []).concat('system'); return 'system'; },
   initFile: (el) => { engineStub.calls = (engineStub.calls || []).concat('file'); return Promise.resolve('file'); },
   setTheme() {},
-  setParam() {},
-  getParam(k) { return k === 'theme' ? 'deepsea' : 1; },
+  setParam(k, v) { engineStub.params = engineStub.params || {}; engineStub.params[k] = v; },
+  getParam(k) { return (engineStub.params && engineStub.params[k] !== undefined) ? engineStub.params[k] : (k === 'theme' ? 'deepsea' : 1); },
   getThemes() { return [{ key: 'deepsea', name: '深海' }]; },
   getState() { return { audioLevel: 0 }; },
 };
@@ -142,6 +144,8 @@ const sandbox = {
       },
       altSources: async (p) => {
         lastAltQuery = p;
+        if (altEmpty) return { ok: true, alternatives: [] };
+        if (altAllFail) return { ok: true, alternatives: [{ source: 'kugou', id: 'K1', name: '晴天', artist: '周杰伦', lxSource: 'kg' }, { source: 'kuwo', id: 'W1', name: '晴天', artist: '周杰伦', lxSource: 'kw' }] };
         return { ok: true, alternatives: [{ source: 'qq', id: 'MID9', name: '晴天', artist: '周杰伦', lxSource: 'tx', songmid: 'MID9' }] };
       },
       getLyric: async () => ({ ok: true, data: { lrc: '[00:01.00]第一句\n[00:10.00]第二句\n', tlyric: '[00:10.00]Second line' } }),
@@ -463,6 +467,68 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
     check('已换到 QQ 源播放', /stream[.]qqmusic[.]qq[.]com/.test(String(audioEl.src)), String(audioEl.src));
     check('换源结果提示', /已换源播放/.test(ids['status'].textContent), ids['status'].textContent);
     check('换源结果写回列表来源', /QQ/.test(ids['playlist']._children.map((r) => r.innerHTML).join('')), String(ids['playlist']._children.length) + ' 行');
+    failSources.clear();
+
+    // 26) 色彩混搭（自选两色 + 强度）
+    const mixEl = doc.getElementById('p-colormix');
+    mixEl.value = '0.6';
+    mixEl._emit('input');
+    check('混搭强度已下发引擎', Number((engineStub.params || {}).colorMix) === 0.6, String((engineStub.params || {}).colorMix));
+    const caEl = doc.getElementById('p-colora');
+    caEl.value = '#123456';
+    caEl._emit('input');
+    check('主色已下发引擎', (engineStub.params || {}).colorA === '#123456', String((engineStub.params || {}).colorA));
+    const cbEl = doc.getElementById('p-colorb');
+    cbEl.value = '#abcdef';
+    cbEl._emit('input');
+    check('副色已下发引擎', (engineStub.params || {}).colorB === '#abcdef');
+    check('混搭设置已持久化', /abcdef/.test(String(sandbox.localStorage._d['songwave.state'] || '')), String(sandbox.localStorage._d['songwave.state']).slice(0, 120));
+
+    // 27) 桌面歌词（沉浸/壁纸模式）
+    const dlEnable = doc.getElementById('dl-enable');
+    dlEnable.checked = true;
+    dlEnable._emit('change');
+    const dlEl = ids['desktop-lyric'];
+    check('桌面歌词已开启并可见', dlEl.classList.contains('on') === true);
+    check('桌面歌词渲染出当前句', dlEl._children.length >= 1, String(dlEl._children.length));
+    check('桌面歌词位置类已应用', dlEl.classList.contains('pos-bottom') && dlEl.classList.contains('al-center'));
+    const dlPos = doc.getElementById('dl-pos');
+    dlPos.value = 'top';
+    dlPos._emit('change');
+    check('切换位置生效', dlEl.classList.contains('pos-top') && !dlEl.classList.contains('pos-bottom'));
+    const dlLines = doc.getElementById('dl-lines');
+    dlLines.value = '2';
+    dlLines._emit('change');
+    check('两行模式渲染当前+下一句', dlEl._children.length === 2, String(dlEl._children.length));
+    const dlSize = doc.getElementById('dl-size');
+    dlSize.value = '48';
+    dlSize._emit('input');
+    check('字号已应用到歌词行', String(dlEl._children[0].style.fontSize) === '48px', String(dlEl._children[0].style.fontSize));
+    const dlColor = doc.getElementById('dl-color');
+    dlColor.value = '#00ff88';
+    dlColor._emit('input');
+    check('歌词颜色已应用', String(dlEl._children[0].style.color) === '#00ff88', String(dlEl._children[0].style.color));
+    check('桌面歌词设置已持久化', /desktoplyric/.test(Object.keys(sandbox.localStorage._d).join(',')), Object.keys(sandbox.localStorage._d).join(','));
+
+    // 28) 换源失败要显示出来
+    altEmpty = true;
+    failSources.add('netease');
+    ids['search-input'].value = '周杰伦';
+    await ids['search-btn'].onclick();
+    await flush();
+    ids['results']._children[0].onclick();
+    await flush(); await flush(); await flush();
+    check('找不到替代版本时提示换源失败', /换源失败/.test(ids['status'].textContent), ids['status'].textContent);
+    check('失败提示包含已试平台数', /已试/.test(ids['status'].textContent), ids['status'].textContent);
+
+    altEmpty = false;
+    altAllFail = true;
+    failSources.add('kugou');
+    failSources.add('kuwo');
+    ids['results']._children[0].onclick();
+    await flush(); await flush(); await flush();
+    check('替代源全部失败时逐个平台显示原因', /换源失败：.*(酷狗|酷我)/.test(ids['status'].textContent), ids['status'].textContent);
+    altAllFail = false;
     failSources.clear();
 
     console.log(`\n结果: ${pass} 通过, ${fail} 失败`);

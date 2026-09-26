@@ -612,3 +612,36 @@ body.bg-blend .songwave-rings { opacity: var(--viz-opacity, .85); }
 #cover-wrap { cursor: pointer; }
 #cover-wrap.no-cover { background: linear-gradient(135deg, #1b2740, #0d1424); }
 .src-tools .chk { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #93a6c4; cursor: pointer; }
+
+/* ===== 桌面歌词（沉浸 / 壁纸模式） ===== */
+#desktop-lyric {
+  position: fixed;
+  z-index: 30;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 88vw;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+#desktop-lyric.hidden { display: none; }
+#desktop-lyric.on { opacity: 1; }
+/* 位置 */
+#desktop-lyric.pos-bottom { left: 6vw; right: 6vw; bottom: 7vh; align-items: center; }
+#desktop-lyric.pos-top { left: 6vw; right: 6vw; top: 7vh; align-items: center; }
+#desktop-lyric.pos-left { left: 4vw; top: 50%; transform: translateY(-50%); width: 34vw; align-items: flex-start; }
+#desktop-lyric.pos-right { right: 4vw; top: 50%; transform: translateY(-50%); width: 34vw; align-items: flex-end; }
+/* 对齐（覆盖位置默认） */
+#desktop-lyric.al-left { align-items: flex-start; text-align: left; }
+#desktop-lyric.al-center { align-items: center; text-align: center; }
+#desktop-lyric.al-right { align-items: flex-end; text-align: right; }
+.dl-line {
+  line-height: 1.32;
+  white-space: pre-line;
+  transition: opacity .2s;
+  max-width: 100%;
+}
+.dl-line.dl-cur { opacity: 1; }
+.dl-line.dl-next { opacity: .55; }
+.dl-shadow .dl-line { text-shadow: 0 2px 10px rgba(0,0,0,.85), 0 0 2px rgba(0,0,0,.9); }

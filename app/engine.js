@@ -37,6 +37,9 @@
     hueShift: 0,        // 色相偏移（自定义颜色，-180~180）
     mouseWave: 1.0,     // 鼠标波动强度（0=关闭，只是轻微波动）
     barStyle: 'glass',  // 音柱材质：glass(玻璃) / solid(实心) / glow(发光) / acrylic(亚克力)
+    colorA: '#67DCE7',  // 混搭主色（色板自选）
+    colorB: '#FF6BAE',  // 混搭副色
+    colorMix: 0,        // 混搭强度：0=主题色，1=完全自选两色渐变
     barBlur: 6,         // 材质模糊半径 px（亚克力/磨砂）
     barAlpha: 1.0,      // 材质整体透明度倍率（0.2~2）
     barGlow: 1.0,       // 高光/发光强度倍率（0~2）
@@ -125,7 +128,7 @@
         const db = Math.pow(Math.max(0, Math.sin(state.time * 0.1)), 4);
         if (db > 0.6) p.flash = Math.max(p.flash, db);
       }
-      p.hue = (t.hue + p.r * 150) % 360;
+      p.hue = P.colorMix > 0 ? (hueAt(Math.min(1, p.r)) + p.r * 40) % 360 : (t.hue + p.r * 150) % 360;
       p.sat = t.sat;
       p.light = t.light + (p.height / maxH) * 18;
       // 鼠标波动：滑过音域时局部轻微抬升（纯增量，不影响核心能量）
@@ -202,7 +205,7 @@
     const maxH = H * 0.2;
     const baseY = H - 10;
     const x0 = (W - totalW) / 2;
-    const hue = state.hue;
+    let hue = state.hue;   // 混搭开启时按柱位逐根取色（形成渐变）
     const style = P.barStyle || 'glass';
     // 材质可调参数（亚克力/玻璃/实心/发光 都吃这几个值）
     const am = Math.max(0, Math.min(2, P.barAlpha == null ? 1 : Number(P.barAlpha)));
@@ -233,6 +236,7 @@
       const x = x0 + i * bw;
       const w = bw * 0.62;
       const top = baseY - bh;
+      if (P.colorMix > 0) hue = hueAt(i / Math.max(1, bars - 1));
 
       if (style === 'glow') {
         // 发光材质：柔光渐晕，无实体
@@ -306,6 +310,34 @@
 
   function theme() { const t = THEMES[P.theme] || THEMES.deepsea; return { name: t.name, hue: (t.hue + (P.hueShift || 0) + 360) % 360, sat: t.sat, light: t.light }; }
 
+  // ---------- 色彩混搭：色板自选两色，按位置渐变 ----------
+  function hexToHue(hex) {
+    const s = String(hex || '').replace('#', '');
+    if (s.length !== 6) return null;
+    const r = parseInt(s.slice(0, 2), 16) / 255;
+    const g = parseInt(s.slice(2, 4), 16) / 255;
+    const b = parseInt(s.slice(4, 6), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (d === 0) return 0;
+    let h;
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    return (h * 60 + 360) % 360;
+  }
+  function hueAt(r) {
+    const t = theme();
+    const mix = Math.max(0, Math.min(1, P.colorMix == null ? 0 : Number(P.colorMix)));
+    if (mix <= 0) return t.hue;
+    const hA = hexToHue(P.colorA);
+    const hB = hexToHue(P.colorB);
+    if (hA == null || hB == null) return t.hue;
+    const delta = ((hB - hA + 540) % 360) - 180;
+    const grad = (hA + delta * Math.max(0, Math.min(1, r)) + 360) % 360;
+    const back = ((t.hue - grad + 540) % 360) - 180;
+    return (grad + back * (1 - mix) + 360) % 360;
+  }
+
   // ---------- HSL -> RGB ----------
   function hsl2rgb(h, s, l) {
     const C = (1 - Math.abs(2 * l - 1)) * s;
@@ -326,7 +358,7 @@
   // （v0.1 的 Creature 粒子系统自音域地形改版后从未参与渲染，
   //   相关死代码已移除；点击反馈保留光环效果）
   function addRing(x, y, strength) {
-    rings.push({ x, y, r: 4, max: 80 + strength * 220, alpha: 0.9, hue: state.hue });
+    rings.push({ x, y, r: 3, max: 46 + strength * 120, alpha: 0.75, hue: (P.colorMix > 0 ? hueAt(0.35) : state.hue) });
   }
   // ============================================================
   // Canvas 2D 优化后端（保底方案：无独立显卡也能流畅）
@@ -809,7 +841,8 @@ ctx.globalCompositeOperation = 'source-over';
     state.time += dt;
     updateAudio(dt);
     const t = theme();
-    state.hue += (t.hue - state.hue) * (1 - Math.pow(0.98, dt));
+    const targetHue = P.colorMix > 0 ? hueAt(0.5) : t.hue;
+    state.hue += (targetHue - state.hue) * (1 - Math.pow(0.98, dt));
 
     updatePhotons(dt);
 
