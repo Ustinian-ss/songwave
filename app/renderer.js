@@ -1098,8 +1098,26 @@
     ['p-barblur', 'barBlur', 'v-barblur'], ['p-baralpha', 'barAlpha', 'v-baralpha'],
     ['p-barglow', 'barGlow', 'v-barglow'], ['p-barround', 'barRound', 'v-barround'],
     ['p-colormix', 'colorMix', 'v-colormix'], ['p-bottompad', 'bottomPad', 'v-bottompad'],
-    ['p-flipy', 'flipY', 'v-flipy'],
+    ['p-flipy', 'flipY', 'v-flipy'], ['p-ringsize', 'ringSize', 'v-ringsize'],
+    ['p-ringtrigger', 'ringTrigger', 'v-ringtrigger'],
   ];
+  /** 光环触发/大小的标签显示文字与倍率 */
+  function bindRingLabels() {
+    const t = $('p-ringtrigger'), tl = $('v-ringtrigger');
+    const sz = $('p-ringsize'), sl = $('v-ringsize');
+    const names = ['鼠标 + 音频', '仅鼠标互动', '仅音频节拍', '关闭'];
+    if (t && tl) {
+      const paint = () => { tl.textContent = names[Number(t.value)] || names[0]; };
+      t.addEventListener('input', paint);
+      paint();
+    }
+    if (sz && sl) {
+      const paint2 = () => { sl.textContent = (Math.round(Number(sz.value) * 100) / 100) + '×'; };
+      sz.addEventListener('input', paint2);
+      paint2();
+    }
+  }
+
   /** 地形朝向的标签要显示文字而不是数字（0/1） */
   function bindFlipYLabel() {
     const el = $('p-flipy'), label = $('v-flipy');
@@ -2751,6 +2769,7 @@
     renderThemes();
     bindParams();
     bindFlipYLabel();
+    bindRingLabels();
     // 恢复上次选择的音源
     try {
       const s = localStorage.getItem('songwave.source');

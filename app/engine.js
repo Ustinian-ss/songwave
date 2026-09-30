@@ -45,6 +45,8 @@
     barGlow: 1.0,       // 高光/发光强度倍率（0~2）
     barRound: 2,        // 柱体圆角 px
     bottomPad: 96,      // 底部留白 px：给播放条/任务栏让位，避免"律动贴到屏幕最底"
+    ringSize: 0.5,      // 地面光环大小倍率（0.1~1.5，默认比以前小一半）
+    ringTrigger: 0,     // 光环触发：0=鼠标+音频 1=仅鼠标互动 2=仅音频节拍 3=关闭
     flipY: 1,           // 地形朝向：1 = 正立（柱子立在地面上向上生长，与 2D 保底路径一致）
                         //          0 = 旧版倒挂观感（WebGL 路径 y 轴被 FBO 二次翻转，会垂到屏幕底）
     silenceSec: 6,      // 连续无信号多少秒后才回演示动画（太短会在歌曲安静段落误判）
@@ -186,19 +188,46 @@
   function drawOverlay(dt) {
     rctx.clearRect(0, 0, W, H);
 
-    // ---- 光环 ----
+    // ---- 地面光环（3D：投影到音域地形所在的斜面上，近处粗亮、远处细暗）----
     if (rings.length > 0) {
+      const padR = Number(P.bottomPad) || 0;
+      const stageHR = Math.max(240, H - padR);
+      const tiltR = Number(P.tilt) || 0.42;
+      const groundWR = W * 0.46;
+      const farPersp = 1 / (1 + 2 * tiltR);      // 最远排的透视系数：用于把 persp 归一化成深度
+      const nearFarSpan = 1 - farPersp;
+      const SEG = 84;
       rctx.globalCompositeOperation = 'lighter';
+      rctx.lineCap = 'round';
       for (let i = rings.length - 1; i >= 0; i--) {
         const rg = rings[i];
         const growK = 1 - Math.pow(0.92, dt);
-        rg.r += (rg.max - rg.r) * growK + 0.5 * dt;
-        rg.alpha *= Math.pow(0.94, dt);
-        if (rg.alpha < 0.02 || rg.r > rg.max) { rings.splice(i, 1); continue; }
-        rctx.strokeStyle = 'hsla(' + rg.hue + ',85%,70%,' + rg.alpha + ')';
-        rctx.lineWidth = 2 + rg.alpha * 3;
-        rctx.beginPath(); rctx.arc(rg.x, rg.y, rg.r, 0, TAU); rctx.stroke();
+        rg.nr += (rg.max - rg.nr) * growK + 0.006 * dt;
+        rg.alpha *= Math.pow(0.945, dt);
+        if (rg.alpha < 0.02 || rg.nr > rg.max) { rings.splice(i, 1); continue; }
+        let px = 0, py = 0;
+        for (let s = 0; s <= SEG; s++) {
+          const a = (s / SEG) * TAU;
+          const nx = rg.nx + Math.cos(a) * rg.nr;
+          const nz = rg.nz + Math.sin(a) * rg.nr;
+          const persp = 1 / (1 + (nz + 1) * tiltR);
+          const gx = W / 2 + nx * groundWR * persp;
+          const gz = (nz + 1) * 0.5 * stageHR * 0.5;
+          const gy = stageHR * 0.71 - gz;
+          if (s > 0) {
+            const depth = nearFarSpan > 0.01 ? Math.max(0, Math.min(1, (persp - farPersp) / nearFarSpan)) : 1;
+            rctx.strokeStyle = 'hsla(' + rg.hue + ', 88%, ' + (58 + depth * 22) + '%, ' +
+              Math.max(0.015, rg.alpha * (0.22 + depth * 1.05)).toFixed(3) + ')';
+            rctx.lineWidth = (0.8 + depth * 2.6) * (1 + rg.alpha * 1.2);
+            rctx.beginPath();
+            rctx.moveTo(px, py);
+            rctx.lineTo(gx, gy);
+            rctx.stroke();
+          }
+          px = gx; py = gy;
+        }
       }
+      rctx.lineCap = 'butt';
     }
 
     // ---- 底部音乐频谱（音域回响）----
@@ -375,8 +404,37 @@
   // ---------- 反馈效果 ----------
   // （v0.1 的 Creature 粒子系统自音域地形改版后从未参与渲染，
   //   相关死代码已移除；点击反馈保留光环效果）
-  function addRing(x, y, strength) {
-    rings.push({ x, y, r: 3, max: 46 + strength * 120, alpha: 0.75, hue: (P.colorMix > 0 ? hueAt(0.35) : state.hue) });
+  // 地面光环：坐标用与光子相同的「网格归一化坐标」(-1..1)，这样能投影到同一张地形斜面上
+  function addRing(nx, nz, strength) {
+    rings.push({
+      nx: Math.max(-1.2, Math.min(1.2, Number(nx) || 0)),
+      nz: Math.max(-1.2, Math.min(1.2, Number(nz) || 0)),
+      nr: 0.02,                                   // 归一化半径（网格单位），从中心向外扩散
+      max: (0.35 + Math.min(1, Math.abs(strength) || 0) * 0.9) * Math.max(0.1, Math.min(2, Number(P.ringSize) || 0.5)),
+      alpha: 0.8,
+      hue: (P.colorMix > 0 ? hueAt(0.35) : state.hue),
+    });
+  }
+
+  /** 光环触发开关：0=鼠标+音频 1=仅鼠标互动 2=仅音频节拍 3=关闭 */
+  function ringOn(kind) {
+    const t = Number(P.ringTrigger) || 0;
+    if (t === 3) return false;
+    if (t === 1) return kind === 'mouse';
+    if (t === 2) return kind === 'audio';
+    return true;
+  }
+
+  /** 屏幕坐标 → 地形网格坐标（点击处生成 3D 光环用；与 updatePhotons 的投影互逆，忽略柱高） */
+  function screenToGrid(x, y) {
+    const padS = Number(P.bottomPad) || 0;
+    const stageHS = Math.max(240, H - padS);
+    const tiltS = Number(P.tilt) || 0.42;
+    const groundWS = W * 0.46;
+    const nz = Math.max(-1, Math.min(1, ((stageHS * 0.71 - y) / (0.5 * stageHS * 0.5)) - 1));
+    const persp = 1 / (1 + (nz + 1) * tiltS);
+    const nx = (x - W / 2) / Math.max(1, groundWS * persp);
+    return { nx: Math.max(-1, Math.min(1, nx)), nz: nz };
   }
   // ============================================================
   // Canvas 2D 优化后端（保底方案：无独立显卡也能流畅）
@@ -828,7 +886,7 @@ ctx.globalCompositeOperation = 'source-over';
     // 冷却按时间（~250ms）而非"8 帧"——高刷屏上 8 帧只有 ~55ms 会连环误触发
     if (beatNow > 0.28 && state.time - state._lastBeat > 15) {
       state.beat = 1; state._lastBeat = state.time;
-      addRing(W / 2, H / 2, state.bass);
+      if (ringOn('audio')) addRing(0, 0, state.bass);   // 从地形中心向外扩散（3D 地面圆环）
     }
     state.beat = Math.max(0, state.beat - 0.06 * dt);
     // 无信号计时：连续静音 > 2.5s 视为"没有声音在放"，改用演示动画（防止画面像死了一样）
@@ -851,7 +909,10 @@ ctx.globalCompositeOperation = 'source-over';
     const p = pointerPos(e);
     pointer.active = true; pointer.x = p.x; pointer.y = p.y;
     // 点击反馈：能量光环
-    addRing(p.x, p.y, 1);
+    if (ringOn('mouse')) {
+      const gRing = screenToGrid(p.x, p.y);
+      addRing(gRing.nx, gRing.nz, 1);
+    }
   });
   canvas.addEventListener('pointermove', function (e) {
     const p = pointerPos(e);
